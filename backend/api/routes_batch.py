@@ -1,6 +1,9 @@
 """Batch Management REST API"""
 import uuid
 import json
+import os
+import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -9,10 +12,26 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Background
 from pydantic import BaseModel
 
 from config import DOCS_INPUT, DOCS_OUTPUT, SRC_OUTPUT, TEST_OUTPUT
-from orchestrator.state_manager import StateManager
+from orchestrator.state_manager import StateManager, NODE_ORDER
 from orchestrator.engine import OrchestratorEngine
 
 router = APIRouter(tags=["batches"])
+
+
+def _run_batch_pipeline(batch_id: str):
+    """Run the long CrewAI pipeline without streaming noisy model logs to console."""
+    sm = StateManager(batch_id)
+    try:
+        with open(os.devnull, "w", encoding="utf-8", errors="ignore") as sink:
+            with redirect_stdout(sink), redirect_stderr(sink):
+                OrchestratorEngine(batch_id).run_auto()
+    except Exception as exc:
+        sm.update_node(sm.get_current_node() or NODE_ORDER[0], "failed", error=str(exc))
+        sm.append_log({
+            "event": "pipeline_background_failed",
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+        })
 
 
 # ── Schemas ──────────────────────────────────────────────
@@ -64,18 +83,34 @@ async def list_batches():
     batches = []
     if DOCS_OUTPUT.exists():
         for d in sorted(DOCS_OUTPUT.iterdir(), reverse=True):
-            if d.is_dir():
-                sf = d / "batch_status.json"
-                if sf.exists():
-                    status = json.loads(sf.read_text())
-                    batches.append({
-                        "batch_id": d.name,
-                        "project_name": status.get("project_name", ""),
-                        "status": status.get("status", "unknown"),
-                        "current_node": status.get("current_node"),
-                        "created_at": status.get("created_at", ""),
-                    })
-    return batches
+            if not d.is_dir():
+                continue
+
+            sf = d / "batch_status.json"
+            if not sf.exists():
+                continue
+
+            try:
+                status = json.loads(sf.read_text(encoding="utf-8"))
+            except Exception as exc:
+                batches.append({
+                    "batch_id": d.name,
+                    "project_name": d.name,
+                    "status": "failed",
+                    "current_node": None,
+                    "created_at": "",
+                    "error": f"状态文件读取失败: {exc}",
+                })
+                continue
+
+            batches.append({
+                "batch_id": d.name,
+                "project_name": status.get("project_name", ""),
+                "status": status.get("status", "unknown"),
+                "current_node": status.get("current_node"),
+                "created_at": status.get("created_at", ""),
+            })
+    return sorted(batches, key=lambda x: x.get("created_at") or "", reverse=True)
 
 
 @router.get("/batches/{batch_id}")
@@ -89,10 +124,8 @@ async def get_batch(batch_id: str):
 
 
 @router.post("/batches/{batch_id}/start")
-def start_batch(batch_id: str):
-    """启动自动执行（同步端点，避免 asyncio 事件循环与 CrewAI 冲突）"""
-    import asyncio, concurrent.futures
-
+def start_batch(batch_id: str, background_tasks: BackgroundTasks):
+    """启动自动执行：立即返回，流水线在后台运行。"""
     sm = StateManager(batch_id)
     status = sm.load()
     if not status:
@@ -100,9 +133,10 @@ def start_batch(batch_id: str):
     if status.get("status") in ("running", "completed"):
         raise HTTPException(400, f"批次当前状态: {status.get('status')}")
 
-    engine = OrchestratorEngine(batch_id)
-    engine.run_auto()
-    return {"batch_id": batch_id, "status": "completed"}
+    sm.update_node(NODE_ORDER[0], "running")
+    sm.append_log({"event": "pipeline_queued", "mode": "auto"})
+    background_tasks.add_task(_run_batch_pipeline, batch_id)
+    return {"batch_id": batch_id, "status": "running"}
 
 
 @router.post("/batches/{batch_id}/next")
