@@ -1,0 +1,30 @@
+# AI-SDLC Backend Dependencies
+# Core
+fastapi>=0.120.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.11.9,<2.13
+pydantic-settings==2.10.1
+
+# Multi-Agent Framework
+crewai==1.14.5
+crewai-tools==1.14.5
+
+# LLM Gateway
+litellm==1.86.2
+
+# WebSocket
+websockets>=14.1
+
+# File handling
+python-multipart>=0.0.19
+aiofiles>=24.1.0
+
+# Utilities
+python-dotenv>=1.2.2
+rich>=13.9.4
+
+# Quality Tools
+flake8>=7.0.0
+radon>=6.0.0
+pytest-cov>=5.0.0
+pytest>=8.0.0

@@ -1,0 +1,93 @@
+/** API client — REST + WebSocket */
+
+import type { BatchStatus, BatchListItem, WsEvent } from '../types';
+
+const BASE = '/api';
+
+// ── REST ─────────────────────────────────────────────
+
+export async function uploadSpec(file: File): Promise<{ filename: string; size: number }> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE}/upload-spec`, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function createBatch(specFilename: string, projectName: string): Promise<{ batch_id: string }> {
+  const res = await fetch(`${BASE}/batches`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spec_filename: specFilename, project_name: projectName }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function listBatches(): Promise<BatchListItem[]> {
+  const res = await fetch(`${BASE}/batches`);
+  return res.json();
+}
+
+export async function getBatch(batchId: string): Promise<BatchStatus> {
+  const res = await fetch(`${BASE}/batches/${batchId}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function startBatch(batchId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/start`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function executeNext(batchId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/next`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function retryNode(batchId: string, nodeId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/retry/${nodeId}`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+// ── WebSocket ────────────────────────────────────────
+
+export function connectWs(
+  batchId: string,
+  onEvent: (event: WsEvent) => void,
+  onClose?: () => void
+): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = window.location.host;
+  const ws = new WebSocket(`${protocol}://${host}/ws/batch/${batchId}/stream`);
+
+  ws.onmessage = (msg) => {
+    try {
+      const event: WsEvent = JSON.parse(msg.data);
+      onEvent(event);
+    } catch {
+      // ignore malformed messages
+    }
+  };
+
+  ws.onclose = () => {
+    onClose?.();
+  };
+
+  ws.onerror = (err) => {
+    console.error('WebSocket error:', err);
+  };
+
+  // Keep-alive ping
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send('ping');
+    } else {
+      clearInterval(pingInterval);
+    }
+  }, 30000);
+
+  ws.addEventListener('close', () => clearInterval(pingInterval));
+
+  return ws;
+}

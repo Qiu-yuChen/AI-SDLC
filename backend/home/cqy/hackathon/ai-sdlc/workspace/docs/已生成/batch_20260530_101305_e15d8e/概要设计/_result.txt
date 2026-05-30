@@ -1,0 +1,845 @@
+# 车票管理系统——概要设计文档
+
+**版本**：v1.0  
+**日期**：2025-06-30  
+**状态**：初稿  
+
+---
+
+## 1. 系统概述
+
+### 1.1 项目背景与目标
+
+**背景**：传统人工售票方式效率低下、易出错，无法满足现代车站的运营需求。  
+**目标**：构建一套轻量级车票管理系统，支持车次管理、余票查询、售票、退票、改签、订单管理、用户管理及报表统计，提升票务运营效率。
+
+### 1.2 系统范围与边界
+
+| 包含 | 不包含 |
+|------|--------|
+| 车次管理、座位管理、售票、退票、改签 | 实际支付网关对接（预留接口） |
+| 订单管理、用户管理、报表统计 | 线下检票设备对接 |
+| 基于CSV文件的数据持久化 | 实时交通数据接入 |
+
+### 1.3 用户角色定义
+
+| 角色 | 描述 | 核心权限 |
+|------|------|----------|
+| 乘客 | 注册登录、查车次、购票、退票、改签、查看订单 | 个人订单操作 |
+| 售票员 | 线下代客购票、退票、改签、管理当日车次 | 售票权限 + 当日车次查看 |
+| 管理员 | 车次CRUD、座位配置、票价设置、用户管理、报表统计 | 全部管理权限 |
+
+### 1.4 技术约束
+
+按赛题要求调整为以下技术栈：
+- **后端**：Python FastAPI
+- **前端**：原生 HTML + JavaScript（无框架）
+- **数据存储**：CSV 文件（模拟数据库）
+- **认证**：JWT Token
+- **密码加密**：bcrypt
+
+---
+
+## 2. 系统架构设计
+
+### 2.1 整体架构图
+
+```mermaid
+graph TB
+    subgraph 表示层
+        A[HTML 静态页面]
+        B[JavaScript / AJAX]
+    end
+    
+    subgraph API网关层
+        C[FastAPI Router]
+        D[JWT 认证中间件]
+    end
+    
+    subgraph 业务逻辑层
+        E[认证模块]
+        F[车次管理模块]
+        G[订单管理模块]
+        H[座位管理模块]
+        I[报表统计模块]
+    end
+    
+    subgraph 数据访问层
+        J[CSV 数据读写模块]
+        K[数据缓存 Layer]
+    end
+    
+    subgraph 数据存储层
+        L[users.csv]
+        M[trips.csv]
+        N[seats.csv]
+        O[orders.csv]
+        P[audit_log.csv]
+    end
+
+    A --> B
+    B -->|HTTP REST API| C
+    C --> D
+    D --> E
+    E --> F
+    E --> G
+    E --> H
+    E --> I
+    F --> J
+    G --> J
+    H --> J
+    I --> J
+    J --> K
+    K --> L
+    K --> M
+    K --> N
+    K --> O
+    K --> P
+```
+
+### 2.2 分层说明
+
+| 层级 | 技术选型 | 职责 |
+|------|----------|------|
+| **表示层** | HTML5 + CSS3 + JavaScript (ES6) | 渲染UI，通过fetch/AJAX调用后端API，处理用户交互 |
+| **业务逻辑层** | FastAPI (Python 3.10+) | 接收请求，执行认证校验、业务规则处理，返回JSON响应 |
+| **数据访问层** | Python csv + pandas 模块 | 封装CSV文件的读、写、查询、排序、过滤操作，提供统一的DAO接口 |
+| **数据存储层** | 5个CSV文件 | 模拟关系型数据库的5张表 |
+
+---
+
+## 3. 模块划分
+
+### 3.1 模块清单
+
+| 模块名 | 功能描述 | 依赖 |
+|--------|----------|------|
+| **认证模块** | 用户注册、登录、Token签发与验证、密码加密 | 数据访问模块 |
+| **车次管理模块** | 车次增删改查、车次状态管理、模糊搜索 | 认证模块（鉴权）、数据访问模块 |
+| **座位管理模块** | 座位配置、余量查询、座位锁定/释放（超时机制） | 车次管理模块、数据访问模块 |
+| **订单管理模块** | 购票（创建订单）、退票、改签、订单查询 | 车次模块、座位模块、认证模块 |
+| **报表统计模块** | 售票数量/收入统计、退票率计算、热门车次排行 | 订单模块、车次模块 |
+| **数据访问模块** | 统一的CSV读写接口（CRUD）、线程安全读写锁 | 无（基础模块） |
+
+### 3.2 模块接口定义
+
+```
+认证模块：
+  - authenticate(username, password) → Token | None
+  - verify_token(token) → user_dict | None
+  - register(username, password, phone, role) → bool
+
+车次管理模块：
+  - get_trips(filters) → list[dict]
+  - get_trip_by_id(trip_id) → dict | None
+  - create_trip(data) → bool
+  - update_trip(trip_id, data) → bool
+  - delete_trip(trip_id) → bool
+
+座位管理模块：
+  - get_seats(trip_id, seat_type) → list[dict]
+  - lock_seat(seat_id, user_id, timeout_min=15) → bool
+  - unlock_seat(seat_id) → bool
+  - release_expired_locks() → int (释放数量)
+
+订单管理模块：
+  - create_order(user_id, trip_id, seats, passengers) → order_dict
+  - pay_order(order_id) → bool
+  - cancel_order(order_id) → refund_info
+  - change_ticket(order_id, new_trip_id, new_seat_id) → order_dict
+  - get_user_orders(user_id, filters) → list[dict]
+
+报表统计模块：
+  - get_sales_report(start_date, end_date) → dict
+  - get_popular_trips(limit=10) → list[dict]
+  - get_refund_rate(start_date, end_date) → float
+```
+
+---
+
+## 4. API 接口设计
+
+### 4.1 API 端点总览
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/auth/register` | 用户注册 | 无 |
+| POST | `/api/auth/login` | 用户登录 | 无 |
+| GET | `/api/trips` | 查询车次列表 | 可选 |
+| GET | `/api/trips/{id}` | 车次详情（含座位） | 可选 |
+| POST | `/api/orders` | 创建订单（购票） | 需要 |
+| GET | `/api/orders` | 查询本人订单 | 需要 |
+| GET | `/api/orders/{id}` | 订单详情 | 需要 |
+| PUT | `/api/orders/{id}/cancel` | 取消/退票 | 需要 |
+| PUT | `/api/orders/{id}/change` | 改签 | 需要 |
+| POST | `/api/admin/trips` | 管理员新增车次 | 管理员 |
+| PUT | `/api/admin/trips/{id}` | 管理员编辑车次 | 管理员 |
+| DELETE | `/api/admin/trips/{id}` | 管理员删除车次 | 管理员 |
+| GET | `/api/admin/trips` | 管理员查看全部车次 | 管理员 |
+| PUT | `/api/admin/trips/{id}/seats` | 配置座位 | 管理员 |
+| DELETE | `/api/admin/trips/{id}/seats/{seat_id}` | 删除座位 | 管理员 |
+| GET | `/api/admin/reports` | 报表统计 | 管理员 |
+| GET | `/api/admin/users` | 用户管理列表 | 管理员 |
+| PUT | `/api/admin/users/{id}/role` | 修改用户角色 | 管理员 |
+
+### 4.2 详细接口定义
+
+#### 4.2.1 用户注册
+
+```
+POST /api/auth/register
+Content-Type: application/json
+
+请求体：
+{
+    "username": "zhangsan",
+    "password": "Abc123456",
+    "phone": "13800138000",
+    "role": "passenger"
+}
+
+成功响应 201：
+{
+    "code": 0,
+    "message": "注册成功",
+    "data": {
+        "user_id": 1,
+        "username": "zhangsan"
+    }
+}
+
+失败响应 400：
+{
+    "code": 1001,
+    "message": "用户名已存在"
+}
+```
+
+#### 4.2.2 用户登录
+
+```
+POST /api/auth/login
+Content-Type: application/json
+
+请求体：
+{
+    "username": "zhangsan",
+    "password": "Abc123456"
+}
+
+成功响应 200：
+{
+    "code": 0,
+    "message": "登录成功",
+    "data": {
+        "token": "eyJhbGciOiJIUzI1NiIs...",
+        "user": {
+            "id": 1,
+            "username": "zhangsan",
+            "role": "passenger"
+        }
+    }
+}
+
+失败响应 401：
+{
+    "code": 1002,
+    "message": "用户名或密码错误"
+}
+```
+
+#### 4.2.3 查询车次列表
+
+```
+GET /api/trips?from=北京&to=上海&date=2025-07-15&keyword=G1
+
+参数说明：
+  from    - 出发站（可选）
+  to      - 到达站（可选）
+  date    - 日期（可选，格式 YYYY-MM-DD）
+  keyword - 车次号模糊搜索（可选）
+
+响应 200：
+{
+    "code": 0,
+    "data": [
+        {
+            "id": 1,
+            "trip_no": "G101",
+            "from_station": "北京",
+            "to_station": "上海",
+            "depart_time": "2025-07-15 08:00:00",
+            "arrive_time": "2025-07-15 13:30:00",
+            "duration": "5h30min",
+            "status": "active",
+            "available_seats": {
+                "hard_seat": 120,
+                "soft_seat": 40,
+                "sleeper": 60
+            },
+            "price_range": {
+                "hard_seat": 553.00,
+                "soft_seat": 880.00,
+                "sleeper": 1050.00
+            }
+        }
+    ],
+    "total": 15
+}
+```
+
+#### 4.2.4 车次详情（含座位列表）
+
+```
+GET /api/trips/1
+
+响应 200：
+{
+    "code": 0,
+    "data": {
+        "id": 1,
+        "trip_no": "G101",
+        "from_station": "北京",
+        "to_station": "上海",
+        "depart_time": "2025-07-15 08:00:00",
+        "arrive_time": "2025-07-15 13:30:00",
+        "status": "active",
+        "seats": [
+            {"id": 1, "carriage_no": "01", "seat_no": "01A", "seat_type": "hard_seat", "price": 553.00, "status": "available"},
+            {"id": 2, "carriage_no": "01", "seat_no": "01B", "seat_type": "hard_seat", "price": 553.00, "status": "locked"},
+            ...
+        ]
+    }
+}
+```
+
+#### 4.2.5 创建订单（购票）
+
+```
+POST /api/orders
+Authorization: Bearer <token>
+Content-Type: application/json
+
+请求体：
+{
+    "trip_id": 1,
+    "tickets": [
+        {
+            "seat_id": 1,
+            "passenger_name": "张三",
+            "passenger_id_no": "110101199003071234"
+        },
+        {
+            "seat_id": 3,
+            "passenger_name": "李四",
+            "passenger_id_no": "110101199103071235"
+        }
+    ]
+}
+
+成功响应 201：
+{
+    "code": 0,
+    "message": "订单创建成功",
+    "data": {
+        "order_id": 10001,
+        "status": "pending",
+        "total_price": 1106.00,
+        "expire_at": "2025-07-14T10:15:00Z",
+        "tickets": [
+            {"ticket_id": 1, "seat_id": 1, "passenger_name": "张三", "price": 553.00},
+            {"ticket_id": 2, "seat_id": 3, "passenger_name": "李四", "price": 553.00}
+        ]
+    }
+}
+
+失败响应 409：
+{
+    "code": 2003,
+    "message": "部分座位已被锁定，请重新选择",
+    "data": {
+        "conflict_seat_ids": [3]
+    }
+}
+```
+
+#### 4.2.6 查看订单列表
+
+```
+GET /api/orders?status=paid&page=1&page_size=20
+Authorization: Bearer <token>
+
+响应 200：
+{
+    "code": 0,
+    "data": [
+        {
+            "order_id": 10001,
+            "trip_no": "G101",
+            "from_station": "北京",
+            "to_station": "上海",
+            "depart_time": "2025-07-15 08:00:00",
+            "status": "paid",
+            "total_price": 1106.00,
+            "created_at": "2025-07-14T10:00:00Z",
+            "ticket_count": 2
+        }
+    ],
+    "total": 5,
+    "page": 1,
+    "page_size": 20
+}
+```
+
+#### 4.2.7 取消订单（退票）
+
+```
+PUT /api/orders/10001/cancel
+Authorization: Bearer <token>
+Content-Type: application/json
+
+请求体（可选）：
+{
+    "ticket_ids": [1, 2]  // 如不传，取消整单
+}
+
+响应 200：
+{
+    "code": 0,
+    "message": "退票成功",
+    "data": {
+        "order_id": 10001,
+        "refund_amount": 994.14,
+        "deducted_amount": 111.86,
+        "deduct_rate": "10%",
+        "refunded_tickets": [
+            {"ticket_id": 1, "refund_amount": 497.07},
+            {"ticket_id": 2, "refund_amount": 497.07}
+        ]
+    }
+}
+
+失败响应 400：
+{
+    "code": 2004,
+    "message": "该订单已取消，不能重复退票"
+}
+```
+
+#### 4.2.8 改签
+
+```
+PUT /api/orders/10001/change
+Authorization: Bearer <token>
+Content-Type: application/json
+
+请求体：
+{
+    "ticket_id": 1,
+    "new_trip_id": 2,
+    "new_seat_id": 10
+}
+
+响应 200：
+{
+    "code": 0,
+    "message": "改签成功",
+    "data": {
+        "old_order_id": 10001,
+        "old_ticket_id": 1,
+        "new_order_id": 10002,
+        "new_ticket_id": 50,
+        "price_diff": -50.00,
+        "refund_amount": 50.00
+    }
+}
+
+失败响应 400：
+{
+    "code": 2005,
+    "message": "该车票已改签过一次，不可再次改签"
+}
+```
+
+#### 4.2.9 管理员 - 新增车次
+
+```
+POST /api/admin/trips
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+请求体：
+{
+    "trip_no": "G888",
+    "from_station": "广州",
+    "to_station": "深圳",
+    "depart_time": "2025-07-20 09:00:00",
+    "arrive_time": "2025-07-20 10:30:00",
+    "status": "active"
+}
+
+响应 201：
+{
+    "code": 0,
+    "message": "车次添加成功",
+    "data": {
+        "trip_id": 20
+    }
+}
+```
+
+#### 4.2.10 管理员 - 报表统计
+
+```
+GET /api/admin/reports?type=daily&date=2025-07-15
+Authorization: Bearer <admin_token>
+
+响应 200：
+{
+    "code": 0,
+    "data": {
+        "date": "2025-07-15",
+        "total_sales": 128,
+        "total_revenue": 85000.50,
+        "refund_count": 5,
+        "refund_rate": 3.91,
+        "refund_total_amount": 1234.56,
+        "popular_trips": [
+            {"trip_no": "G101", "sales_count": 56, "revenue": 38000.00},
+            {"trip_no": "D1234", "sales_count": 32, "revenue": 16000.00}
+        ]
+    }
+}
+
+日报/周报/月报通过 type 参数选择：daily / weekly / monthly
+```
+
+---
+
+## 5. 数据模型设计
+
+### 5.1 CSV 表结构定义
+
+系统使用 5 个 CSV 文件模拟关系型数据库，所有文件存储于 `/data/` 目录。
+
+#### 5.1.1 用户表 `users.csv`
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| id | INT | PK, AUTO_INCREMENT | 用户ID |
+| username | VARCHAR(50) | UNIQUE, NOT NULL | 用户名 |
+| password | VARCHAR(255) | NOT NULL | bcrypt加密密码 |
+| phone | VARCHAR(20) | UNIQUE | 手机号 |
+| role | VARCHAR(20) | NOT NULL, DEFAULT 'passenger' | passenger / staff / admin |
+| created_at | VARCHAR(30) | NOT NULL | ISO 8601格式时间戳 |
+
+示例数据：
+```csv
+id,username,password,phone,role,created_at
+1,admin,$2b$12$LJ3m4ys3LFG5s6D7f8G9He,13800000001,admin,2025-06-01T08:00:00Z
+2,staff01,$2b$12$LJ3m4ys3LFG5s6D7f8G9He,13800000002,staff,2025-06-01T09:00:00Z
+3,zhangsan,$2b$12$LJ3m4ys3LFG5s6D7f8G9He,13800138000,passenger,2025-06-15T10:00:00Z
+```
+
+#### 5.1.2 车次表 `trips.csv`
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| id | INT | PK, AUTO_INCREMENT | 车次ID |
+| trip_no | VARCHAR(20) | UNIQUE, NOT NULL | 车次号，如 G101 |
+| from_station | VARCHAR(50) | NOT NULL | 出发站 |
+| to_station | VARCHAR(50) | NOT NULL | 到达站 |
+| depart_time | VARCHAR(30) | NOT NULL | 出发时间 |
+| arrive_time | VARCHAR(30) | NOT NULL | 到达时间 |
+| duration | VARCHAR(20) | 计算字段（可不存） | 运行时长 |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'active' | active / disabled |
+
+示例数据：
+```csv
+id,trip_no,from_station,to_station,depart_time,arrive_time,duration,status
+1,G101,北京,上海,2025-07-15 08:00:00,2025-07-15 13:30:00,5h30min,active
+2,G102,北京,上海,2025-07-15 14:00:00,2025-07-15 19:20:00,5h20min,active
+3,D1234,广州,深圳,2025-07-15 09:00:00,2025-07-15 10:30:00,1h30min,active
+```
+
+#### 5.1.3 座位表 `seats.csv`
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| id | INT | PK, AUTO_INCREMENT | 座位ID |
+| trip_id | INT | FK → trips.id, NOT NULL | 所属车次 |
+| carriage_no | VARCHAR(10) | NOT NULL | 车厢号，如 01, 02 |
+| seat_no | VARCHAR(10) | NOT NULL | 座位号，如 01A, 02C |
+| seat_type | VARCHAR(20) | NOT NULL | hard_seat / soft_seat / sleeper |
+| price | DECIMAL(10,2) | NOT NULL | 票价 |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'available' | available / locked / sold |
+| locked_by | INT | NULL | 锁定用户的ID |
+| locked_until | VARCHAR(30) | NULL | 锁定到期时间 |
+| sold_order_id | INT | NULL | 已售出的订单ID |
+
+示例数据：
+```csv
+id,trip_id,carriage_no,seat_no,seat_type,price,status,locked_by,locked_until,sold_order_id
+1,1,01,01A,hard_seat,553.00,locked,3,2025-07-14T10:15:00Z,
+2,1,01,01B,hard_seat,553.00,available,,,
+3,1,01,01C,hard_seat,553.00,available,,,
+4,1,01,02A,soft_seat,880.00,sold,3,,10001
+5,2,01,01A,hard_seat,553.00,available,,,
+```
+
+#### 5.1.4 订单表 `orders.csv`
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| id | INT | PK, AUTO_INCREMENT | 订单ID |
+| user_id | INT | FK → users.id, NOT NULL | 购票用户ID |
+| trip_id | INT | FK → trips.id, NOT NULL | 车次ID |
+| seat_id | INT | FK → seats.id, NOT NULL | 座位ID（一张票一条记录） |
+| passenger_name | VARCHAR(50) | NOT NULL | 乘客姓名 |
+| passenger_id_no | VARCHAR(20) | NOT NULL | 身份证号 |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'pending' | pending / paid / cancelled / refunded |
+| total_price | DECIMAL(10,2) | NOT NULL | 该票价格（同seat.price） |
+| created_at | VARCHAR(30) | NOT NULL | 创建时间 |
+| paid_at | VARCHAR(30) | NULL | 支付时间 |
+| is_changed | BOOLEAN | DEFAULT FALSE | 是否已改签 |
+| change_from_order_id | INT | NULL | 改签来源订单ID（仅改签生成时） |
+
+示例数据：
+```csv
+id,user_id,trip_id,seat_id,passenger_name,passenger_id_no,status,total_price,created_at,paid_at,is_changed,change_from_order_id
+10001,3,1,1,张三,110101199003071234,pending,553.00,2025-07-14T10:00:00Z,,FALSE,
+10002,3,1,4,张三,110101199003071234,paid,880.00,2025-07-14T10:05:00Z,2025-07-14T10:05:30Z,FALSE,
+10003,3,1,2,张三,110101199003071234,refunded,553.00,2025-07-14T10:10:00Z,2025-07-14T10:10:30Z,TRUE,10002
+```
+
+#### 5.1.5 审计日志表 `audit_log.csv`（新增——满足安全性需求）
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| id | INT | PK, AUTO_INCREMENT | 日志ID |
+| user_id | INT | FK → users.id, NOT NULL | 操作用户 |
+| action | VARCHAR(50) | NOT NULL | 操作类型：login / create_order / cancel_order / change_ticket / create_trip / delete_trip |
+| detail | VARCHAR(500) | NULL | 操作详情（JSON字符串） |
+| ip_address | VARCHAR(45) | NULL | 客户端IP |
+| created_at | VARCHAR(30) | NOT NULL | 操作时间 |
+
+示例数据：
+```csv
+id,user_id,action,detail,ip_address,created_at
+1,3,login,{"username":"zhangsan"},192.168.1.100,2025-07-14T10:00:00Z
+2,3,create_order,{"order_id":10001,"trip_id":1,"tickets":2},192.168.1.100,2025-07-14T10:00:05Z
+3,1,create_trip,{"trip_no":"G888","from":"广州","to":"深圳"},192.168.1.1,2025-07-14T11:00:00Z
+```
+
+### 5.2 表间关系
+
+```
+users  ──1:N── orders (user_id)
+trips  ──1:N── seats  (trip_id)
+trips  ──1:N── orders (trip_id)
+seats  ──1:N── orders (seat_id)
+users  ──1:N── audit_log (user_id)
+orders ──1:1── seats  (seat_id, 一条订单记录对应一个座位)
+```
+
+### 5.3 数据一致性约束（应用层保证）
+
+由于使用CSV无数据库约束，须在代码中保证：
+1. **唯一性**：用户名的唯一性在写入前检查
+2. **引用完整性**：删除车次前检查是否有未取消的订单
+3. **座位不可重复出售**：座位状态为sold时不可再被其他订单关联
+4. **锁定超时释放**：每5分钟后台任务检查 `locked_until` 过期座位并释放
+
+---
+
+## 6. 关键业务流程
+
+### 6.1 购票业务流程
+
+```mermaid
+sequenceDiagram
+    participant User as 用户/售票员
+    participant Frontend as 前端页面
+    participant API as FastAPI后端
+    participant CSV as CSV数据层
+
+    User->>Frontend: 输入查询条件（出发站/到达站/日期）
+    Frontend->>API: GET /api/trips
+    API->>CSV: 读取 trips.csv + seats.csv
+    CSV-->>API: 返回车次及余票数据
+    API-->>Frontend: 返回车次列表（含余量）
+    Frontend-->>User: 展示可选车次
+
+    User->>Frontend: 选择车次、座位类型、乘客信息
+    Frontend->>API: POST /api/orders (trip_id, seats, passengers)
+    
+    API->>CSV: 检查座位是否available
+    alt 座位可用
+        API->>CSV: 锁定座位（status=locked, locked_by, locked_until）
+        API->>CSV: 创建订单记录（status=pending）
+        API-->>Frontend: 201 Created（订单ID，待支付）
+        Frontend-->>User: 提示"订单已创建，请在15分钟内支付"
+    else 座位已被锁定或出售
+        API-->>Frontend: 409 Conflict（冲突座位列表）
+        Frontend-->>User: 提示"部分座位不可用，请重新选择"
+    end
+```
+
+### 6.2 退票业务流程
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Frontend as 前端页面
+    participant API as FastAPI后端
+    participant CSV as CSV数据层
+
+    User->>Frontend: 选择已支付订单，点击"退票"
+    Frontend->>API: PUT /api/orders/{id}/cancel (ticket_ids)
+
+    API->>CSV: 读取订单、车次信息
+    API->>API: 计算退票时间差
+    API->>API: 根据规则计算手续费
+    alt 开车前 > 48h
+        Note over API: 手续费 = 0%
+    else 开车前 24h~48h
+        Note over API: 手续费 = 10%
+    else 开车前 < 24h
+        Note over API: 手续费 = 20%
+    end
+    
+    API->>CSV: 更新订单状态为 refunded
+    API->>CSV: 释放座位（status=available, locked_by=null）
+    API->>CSV: 记录审计日志
+    API-->>Frontend: 200 OK（退款金额、手续费明细）
+    Frontend-->>User: 展示退票成功信息
+```
+
+### 6.3 改签业务流程
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Frontend as 前端页面
+    participant API as FastAPI后端
+    participant CSV as CSV数据层
+
+    User->>Frontend: 选择已支付票，点击"改签"
+    Frontend->>API: 查询新日期/新班次余票
+    API->>CSV: 读取 trips.csv + seats.csv
+    CSV-->>API: 返回可选车次
+    API-->>Frontend: 返回可选车次列表
+    Frontend-->>User: 展示可选车次
+
+    User->>Frontend: 选择新车次和新座位
+    Frontend->>API: PUT /api/orders/{id}/change (ticket_id, new_trip_id, new_seat_id)
+    
+    API->>CSV: 检查原票是否已改签过
+    alt 已改签过
+        API-->>Frontend: 400 Bad Request（不可再次改签）
+    else 未改签过
+        API->>CSV: 原座位释放（status=available）
+        API->>CSV: 新座位锁定并确认（status=sold）
+        API->>CSV: 原订单标记已取消（status=cancelled），新建订单（status=paid）
+        API->>CSV: 计算差价，记录退款信息
+        API-->>Frontend: 200 OK（新订单信息、差价退款）
+        Frontend-->>User: 展示改签成功及补/退款金额
+    end
+```
+
+### 6.4 异常处理流程
+
+| 场景 | 错误码 | 处理方式 |
+|------|--------|----------|
+| 座位已被锁定 | 2003 | 返回冲突ID列表，建议用户刷新后重选 |
+| 订单已支付15分钟未支付 | - | 后台定时任务将 pending 超时订单置为 cancelled，释放座位 |
+| 退票时距离开车已过 | 2006 | 返回错误"已发车的车票不可退票" |
+| 改签时差价计算失败 | 2007 | 回滚所有操作，原订单保持不变 |
+| CSV文件被占用 | 5001 | 重试3次，每次间隔200ms，仍失败则返回"系统繁忙" |
+| JWT Token过期 | 1003 | 返回401，前端跳转登录页 |
+| 权限不足 | 1004 | 返回403 Forbidden |
+
+---
+
+## 7. 非功能性需求
+
+### 7.1 性能指标
+
+| 指标 | 目标值 | 实现方案 |
+|------|--------|----------|
+| 并发支持 | 高峰500用户同时查询/购票 | 使用Python asyncio异步处理，Uvicorn多worker |
+| 查询响应时间 | < 2秒 | CSV数据读取后进行内存缓存，减少I/O |
+| 购票响应时间 | < 3秒 | 座位锁定使用文件锁 + 内存缓存，快速写入 |
+| 座位锁定超时 | 15分钟自动释放 | 后台定时任务每60秒扫描一次，清理过期锁 |
+| CSV文件锁等待 | < 500ms | 使用 `threading.Lock` + 超时机制 |
+
+### 7.2 安全策略
+
+| 安全维度 | 措施 |
+|----------|------|
+| 密码存储 | bcrypt 加盐哈希，每次注册生成新盐值 |
+| 接口认证 | JWT Token，过期时间24小时，支持Refresh Token |
+| 防暴力登录 | 同IP连续5次登录失败锁定15分钟 |
+| 防CSRF | 所有写操作（POST/PUT/DELETE）校验 `Authorization` Header |
+| 输入校验 | FastAPI Pydantic模型严格校验所有输入参数 |
+| XSS防护 | 前端输出内容进行HTML转义 |
+| 敏感操作审计 | 所有登录、购票、退票、改签、车次变更操作记录到 audit_log.csv |
+| 文件安全 | CSV文件设置644权限，禁止直接HTTP访问 |
+
+### 7.3 错误处理策略
+
+```
+全局异常处理机制：
+1. HTTPException → 直接返回对应状态码和错误信息
+2. CSV读写异常 → 重试3次，仍失败返回500 + 错误码5001
+3. 业务逻辑异常 → 返回400/409 + 业务错误码(2001-2010)
+4. 认证鉴权异常 → 返回401/403 + 错误码(1001-1010)
+5. 未捕获异常 → 全局Exception Handler捕获，返回500 + 错误码9999
+
+统一错误响应格式：
+{
+    "code": 2003,
+    "message": "座位已被占用",
+    "detail": "座位ID: 1, 3",
+    "request_id": "req_abc123"
+}
+```
+
+### 7.4 可用性与可维护性
+
+| 维度 | 要求 |
+|------|------|
+| 可用性 | >99.5%（年停机时间 < 43小时） |
+| 前端兼容 | Chrome 90+、Firefox 88+、Edge 90+ |
+| 响应式设计 | 支持移动端（768px断点适配） |
+| 日志记录 | 所有API请求记录请求方法、路径、耗时、状态码 |
+| 启动恢复 | 系统启动时自动加载CSV数据到内存缓存，检查数据完整性 |
+
+---
+
+## 附录：技术选型总结
+
+| 层级 | 选型 | 版本 | 说明 |
+|------|------|------|------|
+| 后端框架 | FastAPI | 0.110+ | 异步Web框架，自动生成OpenAPI文档 |
+| ASGI服务器 | Uvicorn | 0.27+ | 支持多worker并发 |
+| 前端 | HTML5 + CSS3 + JS | - | 原生实现，无框架依赖 |
+| 数据存储 | CSV | - | 读取使用csv模块，写入使用临时文件原子替换 |
+| 认证 | PyJWT | 2.8+ | JWT Token签发与验证 |
+| 密码 | bcrypt | 4.1+ | 密码哈希 |
+| 测试 | pytest | 8.x | 单元测试与集成测试 |
+| 部署 | Docker | 24+ | 容器化部署，单容器运行 |
+
+---
+
+**文档审核清单：**
+- [x] 系统概述（背景、目标、范围、角色）
+- [x] 系统架构图（Mermaid）
+- [x] 分层说明
+- [x] 技术选型（FastAPI + HTML/JS + CSV）
+- [x] 模块划分与接口定义
+- [x] API接口详细定义（12+端点）
+- [x] CSV数据模型（5张表 + 示例数据）
+- [x] 核心业务流程（图 + 文字说明）
+- [x] 异常处理流程
+- [x] 非功能性需求（性能、安全、错误处理）
