@@ -40,7 +40,13 @@ def create_design_agent() -> Agent:
 - API接口定义（端点、方法、参数、返回值）
 - 数据模型设计（表结构、字段、关系）
 - 技术选型说明
-- 非功能性需求（性能、安全等）""",
+- 非功能性需求（性能、安全等）
+
+⚠️ 工具调用规范（非常重要）：
+- write_file 调用时 path 和 content 参数都必须提供，缺一不可
+- 示例：write_file(path="/path/to/file.md", content="完整的Markdown内容")
+- 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试
+- 不要传入空的路径或空的内容""",
         tools=[read_file, write_file, validate_design_completeness],
         llm=_get_llm(),
         verbose=settings.react_verbose,
@@ -69,7 +75,14 @@ def create_codegen_agent() -> Agent:
 - 每个函数有 docstring
 - 错误处理完善（try/except）
 - 命名遵循 PEP 8
-- CSV 作为数据库（赛题要求）""",
+- CSV 作为数据库（赛题要求）
+
+⚠️ 工具调用规范（非常重要）：
+- write_file 调用时 path 和 content 参数都必须提供，缺一不可
+- 示例：write_file(path="/output/dir/app.py", content="完整的Python代码")
+- content 参数必须包含完整的文件内容，不能为空字符串
+- 确保 JSON 格式正确——字符串中的引号、换行符需要正确转义
+- 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试""",
         tools=[read_file, write_file, list_directory, syntax_check, format_code_file],
         llm=_get_llm(),
         verbose=settings.react_verbose,
@@ -97,7 +110,13 @@ def create_test_agent() -> Agent:
 - 每个测试函数有清晰的断言
 - 覆盖正常路径、边界值、异常处理
 - 测试数据使用 fixture 管理
-- Mock 外部依赖""",
+- Mock 外部依赖
+
+⚠️ 工具调用规范（非常重要）：
+- write_file 调用时 path 和 content 参数都必须提供，缺一不可
+- 示例：write_file(path="/output/dir/test_x.py", content="完整的测试代码")
+- content 参数必须包含完整的文件内容，不能为空字符串
+- 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试""",
         tools=[read_file, write_file, list_directory, syntax_check],
         llm=_get_llm(),
         verbose=settings.react_verbose,
@@ -111,6 +130,15 @@ def create_test_agent() -> Agent:
 
 def build_single_agent_crew(agent: Agent, task_description: str, expected_output: str, output_dir: str) -> Crew:
     """Build a Crew with a single Agent+Task (per-node execution)"""
+
+    def step_callback(step_output):
+        """Intercept tool call errors and provide richer feedback"""
+        if hasattr(step_output, 'tool_errors') and step_output.tool_errors:
+            for err in step_output.tool_errors:
+                if hasattr(err, 'tool_name') and 'write_file' in str(err.tool_name):
+                    print(f"[Tool Error Recovery] write_file failed: {err}")
+        return step_output
+
     task = Task(
         description=task_description,
         agent=agent,
@@ -122,6 +150,7 @@ def build_single_agent_crew(agent: Agent, task_description: str, expected_output
         tasks=[task],
         process=Process.sequential,
         verbose=settings.react_verbose,
+        step_callback=step_callback,
     )
 
 

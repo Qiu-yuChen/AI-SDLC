@@ -1,0 +1,225 @@
+现在我理解了项目结构，已有项目代码非常完整。我需要为当前指定的输出路径生成所有源代码文件。项目代码使用以下架构：
+
+- **app.py** - FastAPI 主入口，含 CORS、路由注册、静态文件挂载、CSV 数据初始化
+- **models.py** - Pydantic 数据模型
+- **dao.py** - CSV 数据访问层（带文件锁）
+- **services.py** - 业务逻辑层（园区、预约、缴费、科拓同步、管理员）
+- **routes.py** - API 路由
+- **utils.py** - 工具函数
+- **static/index.html** - 用户前端页面
+- **static/admin.html** - 管理员后台页面
+- **data/** - CSV 数据文件
+- **requirements.txt** - 依赖
+
+我将在目标路径 `/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260530_145431_e03df8/代码生成/` 生成完整的项目源代码。
+
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="write_file">
+<｜｜DSML｜｜parameter name="path" string="true">/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260530_145431_e03df8/代码生成/utils.py</｜｜DSML｜｜parameter>
+<｜｜DSML｜｜parameter name="content" string="true">"""
+utils.py — 工具函数模块
+
+提供全局辅助函数，包括：
+- 日期时间工具
+- 车牌号校验
+- ID 生成器
+- 日志配置
+"""
+
+import re
+import os
+import logging
+from datetime import datetime, date, timedelta
+from typing import Optional
+
+
+def setup_logger(name: str = "app") -> logging.Logger:
+    """配置并返回一个日志记录器。
+
+    Args:
+        name: 日志记录器名称，默认 "app"
+
+    Returns:
+        配置好的 Logger 实例
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+
+    # 控制台处理器
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    ch.setFormatter(formatter)
+
+    if not logger.handlers:
+        logger.addHandler(ch)
+
+    return logger
+
+
+logger = setup_logger()
+
+
+# ============================================================
+# 车牌号校验
+# ============================================================
+
+# 普通燃油车牌正则（常见格式）
+PATTERN_FUEL = r"^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁][A-Z][A-HJ-NP-Z0-9]{4,5}[A-HJ-NP-Z0-9挂学警港澳]$"
+
+# 新能源车牌正则（绿牌）
+PATTERN_NEW_ENERGY = r"^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁][A-Z][DF][A-HJ-NP-Z0-9]{4}$"
+
+# 合并正则
+PATTERN_PLATE = f"({PATTERN_FUEL})|({PATTERN_NEW_ENERGY})"
+PLATE_REGEX = re.compile(PATTERN_PLATE)
+
+
+def validate_plate_number(plate: str) -> bool:
+    """校验车牌号格式是否正确。
+
+    支持普通燃油车牌和新能源绿牌。
+
+    Args:
+        plate: 车牌号字符串
+
+    Returns:
+        True 表示格式正确，False 表示格式错误
+    """
+    if not plate or not isinstance(plate, str):
+        return False
+    return bool(PLATE_REGEX.match(plate.strip().upper()))
+
+
+# ============================================================
+# 日期时间工具
+# ============================================================
+
+DATE_FORMAT = "%Y-%m-%d"
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def today_str() -> str:
+    """获取今天的日期字符串。
+
+    Returns:
+        格式 YYYY-MM-DD 的日期字符串
+    """
+    return date.today().strftime(DATE_FORMAT)
+
+
+def now_str() -> str:
+    """获取当前时间字符串。
+
+    Returns:
+        格式 YYYY-MM-DD HH:mm:ss 的时间字符串
+    """
+    return datetime.now().strftime(DATETIME_FORMAT)
+
+
+def parse_date(date_str: str) -> Optional[date]:
+    """将日期字符串解析为 date 对象。
+
+    Args:
+        date_str: 格式 YYYY-MM-DD 的日期字符串
+
+    Returns:
+        date 对象，解析失败返回 None
+    """
+    try:
+        return datetime.strptime(date_str, DATE_FORMAT).date()
+    except (ValueError, TypeError):
+        return None
+
+
+def is_weekday(d: date) -> bool:
+    """判断指定日期是否为工作日（周一至周五）。
+
+    Args:
+        d: 日期对象
+
+    Returns:
+        True 表示工作日，False 表示周末
+    """
+    # weekday(): 0=周一, 4=周五, 5=周六, 6=周日
+    return d.weekday() < 5
+
+
+def is_date_in_future(date_str: str, max_days: int = 7) -> bool:
+    """判断日期是否在允许的预约范围内（今天到未来 max_days 天）。
+
+    Args:
+        date_str: 日期字符串 YYYY-MM-DD
+        max_days: 最大可预约未来天数，默认 7
+
+    Returns:
+        True 表示在范围内，False 表示超出范围
+    """
+    d = parse_date(date_str)
+    if d is None:
+        return False
+    today = date.today()
+    return today <= d <= today + timedelta(days=max_days)
+
+
+# ============================================================
+# ID 生成器
+# ============================================================
+
+
+def generate_appointment_id(date_str: str, seq: int = 1) -> str:
+    """生成预约编号。
+
+    格式: APP{YYYYMMDD}{序号, 3位填充}
+
+    Args:
+        date_str: 日期字符串 YYYY-MM-DD
+        seq: 序号，默认 1
+
+    Returns:
+        预约编号字符串
+    """
+    date_part = date_str.replace("-", "")
+    return f"APP{date_part}{seq:03d}"
+
+
+def generate_payment_id(date_str: str, seq: int = 1) -> str:
+    """生成缴费编号。
+
+    格式: PAY{YYYYMMDD}{序号, 3位填充}
+
+    Args:
+        date_str: 日期字符串 YYYY-MM-DD
+        seq: 序号，默认 1
+
+    Returns:
+        缴费编号字符串
+    """
+    date_part = date_str.replace("-", "")
+    return f"PAY{date_part}{seq:03d}"
+
+
+# ============================================================
+# 配额判断
+# ============================================================
+
+
+def get_quota_for_date(park_config: dict, target_date: date) -> int:
+    """根据日期类型（工作日/节假日）获取园区配额。
+
+    Args:
+        park_config: 园区配置字典，必须包含 weekday_quota 和 holiday_quota 字段
+        target_date: 目标日期
+
+    Returns:
+        配额数量（整数）
+    """
+    if is_weekday(target_date):
+        return int(park_config.get("weekday_quota", 0))
+    else:
+        return int(park_config.get("holiday_quota", 0))
+</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>

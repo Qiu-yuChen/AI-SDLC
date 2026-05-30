@@ -38,6 +38,14 @@ uvicorn main:app --reload --reload-exclude "venv/*" --host 0.0.0.0 --port 8001 &
 BACKEND_PID=$!
 echo "   后端 PID: $BACKEND_PID"
 
+# Wait for backend to be ready
+echo "   等待后端就绪..."
+for i in $(seq 1 30); do
+  curl -s http://localhost:8001/health > /dev/null 2>&1 && break
+  sleep 0.3
+done
+echo "   后端已就绪"
+
 # ── Frontend ──
 echo "📦 启动前端 (React + Vite)..."
 cd "$PROJECT_DIR/frontend"

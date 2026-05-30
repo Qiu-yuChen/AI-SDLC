@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # ReAct
-    react_max_iter: int = 15
+    react_max_iter: int = 25
     react_verbose: bool = True
 
     model_config = {"env_file": ".env", "extra": "ignore"}
