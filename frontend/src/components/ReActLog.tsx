@@ -120,13 +120,13 @@ export function ReActLog({ batchId, batchStatus }: Props) {
         }
       );
 
-      ws.onopen = () => {
+      ws.addEventListener('open', () => {
         if (mountedRef.current) {
           setConnected(true);
           setRetryCount(0);
           retryRef.current = 0;
         }
-      };
+      });
     }
 
     connect();
@@ -163,10 +163,10 @@ export function ReActLog({ batchId, batchStatus }: Props) {
   const activeEntryCount = entries.filter(e => e.type !== 'system').length;
 
   return (
-    <div className="card overflow-hidden" style={{ background: '#1e1e2e', borderColor: '#2d2d3d' }}>
+    <div className="card overflow-hidden" style={{ background: '#1a1a1a', borderColor: '#252525' }}>
       <div
         className="flex items-center justify-between px-4 py-3 cursor-pointer"
-        style={{ background: '#16162a' }}
+        style={{ background: '#111111' }}
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-2">

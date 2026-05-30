@@ -1,4 +1,4 @@
-# AI-SDLC run script
+# AI-SDLC run script (随机端口)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -6,6 +6,20 @@ $ProjectDir = Resolve-Path "$ScriptDir\.."
 
 Write-Host "AI-SDLC starting..."
 Write-Host ""
+
+# Find free ports
+function Find-FreePort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    $port = $listener.LocalEndpoint.Port
+    $listener.Stop()
+    return $port
+}
+
+$env:BACKEND_PORT = Find-FreePort
+$env:FRONTEND_PORT = Find-FreePort
+
+Write-Host "Allocated ports: Backend=$($env:BACKEND_PORT), Frontend=$($env:FRONTEND_PORT)"
 
 $BackendDir = Join-Path $ProjectDir "backend"
 $FrontendDir = Join-Path $ProjectDir "frontend"
@@ -30,7 +44,7 @@ $Backend = Start-Process powershell `
     -ArgumentList @(
         "-NoExit",
         "-Command",
-        "cd `"$BackendDir`"; .\venv\Scripts\Activate.ps1; uvicorn main:app --reload --reload-exclude `"venv/*`" --host 0.0.0.0 --port 8000"
+        "cd `"$BackendDir`"; .\venv\Scripts\Activate.ps1; uvicorn main:app --reload --reload-exclude `"venv/*`" --host 127.0.0.1 --port $($env:BACKEND_PORT)"
     ) `
     -PassThru
 
@@ -48,7 +62,7 @@ $Frontend = Start-Process powershell `
     -ArgumentList @(
         "-NoExit",
         "-Command",
-        "cd `"$FrontendDir`"; npm run dev"
+        "`$env:BACKEND_PORT=$($env:BACKEND_PORT); `$env:FRONTEND_PORT=$($env:FRONTEND_PORT); cd `"$FrontendDir`"; npm run dev"
     ) `
     -PassThru
 
@@ -56,9 +70,9 @@ Write-Host "Frontend PID: $($Frontend.Id)"
 
 Write-Host ""
 Write-Host "Started successfully."
-Write-Host "Backend: http://localhost:8000"
-Write-Host "Frontend: http://localhost:5173"
-Write-Host "API docs: http://localhost:8000/docs"
+Write-Host "Backend: http://localhost:$($env:BACKEND_PORT)"
+Write-Host "Frontend: http://localhost:$($env:FRONTEND_PORT)"
+Write-Host "API docs: http://localhost:$($env:BACKEND_PORT)/docs"
 Write-Host ""
 Write-Host "Press Ctrl+C to stop services."
 

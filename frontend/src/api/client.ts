@@ -50,6 +50,11 @@ export async function retryNode(batchId: string, nodeId: string): Promise<void> 
   if (!res.ok) throw new Error(await res.text());
 }
 
+export async function stopBatch(batchId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/stop`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 // ── WebSocket ────────────────────────────────────────
 
 export function connectWs(
@@ -63,21 +68,33 @@ export function connectWs(
   const ws = new WebSocket(url);
 
   let closed = false;
+  let lastPong = Date.now();
+  let heartbeatTimer: ReturnType<typeof setInterval>;
+  let heartbeatTimeout: ReturnType<typeof setTimeout>;
 
   ws.onopen = () => {
-    // Keep-alive ping
-    const pingInterval = setInterval(() => {
+    lastPong = Date.now();
+
+    // Send ping every 10s
+    heartbeatTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send('ping');
-      } else {
-        clearInterval(pingInterval);
       }
-    }, 30000);
+    }, 10000);
 
-    ws.addEventListener('close', () => clearInterval(pingInterval));
+    // Check if pong received within 35s
+    heartbeatTimeout = setTimeout(() => {
+      if (Date.now() - lastPong > 35000) {
+        ws.close();
+      }
+    }, 35000);
   };
 
   ws.onmessage = (msg) => {
+    if (msg.data === 'pong') {
+      lastPong = Date.now();
+      return;
+    }
     try {
       const event: WsEvent = JSON.parse(msg.data);
       onEvent(event);
@@ -87,6 +104,8 @@ export function connectWs(
   };
 
   ws.onclose = () => {
+    clearInterval(heartbeatTimer);
+    clearTimeout(heartbeatTimeout);
     if (!closed) {
       closed = true;
       onClose?.();

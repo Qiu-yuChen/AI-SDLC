@@ -121,6 +121,27 @@ async def retry_node(batch_id: str, node_id: str):
     return result
 
 
+@router.post("/batches/{batch_id}/stop")
+async def stop_batch(batch_id: str):
+    """手动停止批次"""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+
+    # Mark running nodes as failed
+    for node_id, node in status.get("nodes", {}).items():
+        if node.get("status") in ("running", "pending"):
+            sm.update_node(node_id, "failed", error="用户手动停止")
+
+    # Mark batch as failed
+    status["status"] = "failed"
+    status["updated_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
+    sm._write_status(status)
+
+    return {"batch_id": batch_id, "status": "stopped", "message": "批次已手动停止"}
+
+
 @router.post("/upload-spec")
 async def upload_specification(file: UploadFile = File(...)):
     """上传产品规格说明书"""

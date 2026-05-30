@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Sparkles, Play, StepForward, RefreshCw, FolderOpen, Plus, Search, PanelLeftClose, PanelLeft, Zap } from 'lucide-react';
+import { Sparkles, Play, StepForward, RefreshCw, FolderOpen, Plus, Search, PanelLeftClose, PanelLeft, Zap, Square } from 'lucide-react';
 import { BatchCreator } from './components/BatchCreator';
 import { PipelineView } from './components/PipelineView';
 import { ReActLog } from './components/ReActLog';
 import { FilePreview } from './components/FilePreview';
 import { PromptOptimizer } from './components/PromptOptimizer';
-import { listBatches, getBatch, createBatch, uploadSpec, startBatch } from './api/client';
+import { listBatches, getBatch, createBatch, uploadSpec, startBatch, stopBatch } from './api/client';
 import type { BatchListItem, BatchStatus } from './types';
 
 type View = 'create' | 'monitor';
@@ -214,6 +214,20 @@ export default function App() {
                 <Plus className="w-3.5 h-3.5" />
                 新建
               </button>
+              {(activeBatch.status === 'running' || activeBatch.status === 'created') && (
+                <button
+                  onClick={async () => {
+                    await stopBatch(activeBatch.batch_id);
+                    refreshBatch();
+                    loadBatches();
+                  }}
+                  className="btn text-sm"
+                  style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.4)' }}
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  停止
+                </button>
+              )}
               {activeBatch.status === 'completed' && (
                 <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>全部完成</span>
               )}

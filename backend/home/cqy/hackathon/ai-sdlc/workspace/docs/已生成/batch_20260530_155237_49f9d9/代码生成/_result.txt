@@ -1,0 +1,59 @@
+所有文件已生成完毕，全部通过语法检查。以下是完整的项目源代码概览：
+
+---
+
+## 项目源代码结构
+
+```
+/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260530_155237_49f9d9/代码生成/
+├── app.py                    # FastAPI 应用主入口（含数据初始化、CORS、静态文件挂载）
+├── models.py                 # 数据模型（Pydantic 请求/响应模型 + CSV 封装类 CsvHandler）
+├── routes.py                 # API 路由（/api/v1/* 所有端点）
+├── services.py               # 业务逻辑层（预约、取消、缴费、查询、科拓对接）
+├── utils.py                  # 工具函数（日期、编号生成、校验、日志）
+├── data/                     # CSV 数据文件
+│   ├── parks.csv             # 园区配置表（4个园区）
+│   ├── quotas.csv            # 配额设置表（8条配额记录）
+│   ├── reservations.csv      # 预约记录表（空表头）
+│   ├── ketuo_reservations.csv# 科拓预约车档案表（空表头）
+│   └── ketuo_payments.csv    # 科拓缴费表（空表头）
+├── static/
+│   ├── index.html            # 员工端页面（预约、取消、缴费、查询）
+│   └── admin.html            # 管理端页面（配置、统计、科拓调试）
+└── requirements.txt          # 依赖清单
+```
+
+## 已实现的 API 接口（全部通过语法检查 ✅）
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/api/v1/parks` | 获取所有园区配置 |
+| GET | `/api/v1/parks/{park_id}` | 获取单个园区详情 |
+| PUT | `/api/v1/parks/{park_id}` | 更新园区配置 |
+| GET | `/api/v1/admin/status` | 管理员概览 |
+| POST | `/api/v1/reservations` | 提交预约申请（含完整校验） |
+| GET | `/api/v1/reservations/available` | 查询剩余车位 |
+| POST | `/api/v1/reservations/{id}/cancel` | 取消预约 |
+| POST | `/api/v1/payments` | 提前缴费 |
+| GET | `/api/v1/reservations/my` | 查询我的预约 |
+| GET | `/api/v1/reservations/remaining` | 实时剩余车位 |
+| GET | `/api/v1/reservations/all` | 全部预约记录（管理员） |
+| POST | `/api/v1/ketuo/push` | 推送至科拓 |
+| PUT | `/api/v1/ketuo/status` | 更新科拓状态 |
+| POST | `/api/v1/ketuo/payment` | 插入科拓缴费记录 |
+
+## 启动方式
+
+```bash
+cd /home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260530_155237_49f9d9/代码生成/
+pip install -r requirements.txt
+python app.py
+# 访问 http://localhost:8000
+```
+
+## 关键设计说明
+
+1. **CSV 数据层**（`models.py`）：`CsvHandler` 类封装了线程安全的 CSV 增删改查，使用 `threading.Lock` 控制并发写入
+2. **业务校验**（`services.py`）：预约时校验园区开关、日期范围（7天内）、配额上限、同车牌重复、内部车辆检测
+3. **科拓对接**：预约时自动同步至 `ketuo_reservations.csv`，取消时同步更新状态，缴费时写入 `ketuo_payments.csv`
+4. **前端**：单文件 HTML + 原生 JavaScript，无外部依赖，支持员工端和管理端页面切换

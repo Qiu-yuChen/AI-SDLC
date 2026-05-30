@@ -4,21 +4,25 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PORT_FILE="$PROJECT_DIR/.running_ports"
 
 echo "🚀 AI-SDLC 启动中..."
 echo ""
 
-# ── 端口清理 ──
-echo "🧹 清理旧进程..."
-lsof -ti:8001 2>/dev/null | xargs -r kill -9 2>/dev/null || true
-lsof -ti:5173 2>/dev/null | xargs -r kill -9 2>/dev/null || true
-sleep 0.5
+# ── 查找空闲端口 ──
+find_free_port() {
+    python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()"
+}
+
+BACKEND_PORT=$(find_free_port)
+FRONTEND_PORT=$(find_free_port)
+
+echo "🎲 分配端口: 后端=$BACKEND_PORT, 前端=$FRONTEND_PORT"
 
 # ── Backend ──
 echo "📦 启动后端 (FastAPI)..."
 cd "$PROJECT_DIR/backend"
 
-# Create venv if not exists
 if [ ! -d "venv" ]; then
     echo "   创建 Python 虚拟环境..."
     python3 -m venv venv
@@ -26,23 +30,20 @@ fi
 
 source venv/bin/activate
 
-# Install dependencies
 if [ ! -f "venv/.deps_installed" ]; then
     echo "   安装 Python 依赖..."
     pip install -q -r requirements.txt
     touch venv/.deps_installed
 fi
 
-# Start backend in background
-uvicorn main:app --reload --reload-exclude "venv/*" --host 0.0.0.0 --port 8001 &
+uvicorn main:app --reload --reload-exclude "venv/*" --host 127.0.0.1 --port "$BACKEND_PORT" &
 BACKEND_PID=$!
 echo "   后端 PID: $BACKEND_PID"
 
-# Wait for backend to be ready
 echo "   等待后端就绪..."
 for i in $(seq 1 30); do
-  curl -s http://localhost:8001/health > /dev/null 2>&1 && break
-  sleep 0.3
+    curl -s "http://127.0.0.1:$BACKEND_PORT/health" > /dev/null 2>&1 && break
+    sleep 0.3
 done
 echo "   后端已就绪"
 
@@ -55,23 +56,32 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-npm run dev &
+BACKEND_PORT=$BACKEND_PORT FRONTEND_PORT=$FRONTEND_PORT npm run dev &
 FRONTEND_PID=$!
 echo "   前端 PID: $FRONTEND_PID"
 
+# Save ports for cleanup
+echo "BACKEND_PORT=$BACKEND_PORT" > "$PORT_FILE"
+echo "FRONTEND_PORT=$FRONTEND_PORT" >> "$PORT_FILE"
+
 echo ""
 echo "✅ 启动完成！"
-echo "   后端: http://localhost:8001"
-echo "   前端: http://localhost:5173"
-echo "   API文档: http://localhost:8001/docs"
+echo "   后端: http://localhost:$BACKEND_PORT"
+echo "   前端: http://localhost:$FRONTEND_PORT"
+echo "   API文档: http://localhost:$BACKEND_PORT/docs"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 
-# Cleanup on exit (kill process tree + free ports)
 cleanup() {
+    echo ""
+    echo "🛑 停止服务..."
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
-    lsof -ti:8001 2>/dev/null | xargs -r kill -9 2>/dev/null
-    lsof -ti:5173 2>/dev/null | xargs -r kill -9 2>/dev/null
+    if [ -f "$PORT_FILE" ]; then
+        source "$PORT_FILE" 2>/dev/null
+        lsof -ti:$BACKEND_PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
+        lsof -ti:$FRONTEND_PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
+        rm -f "$PORT_FILE"
+    fi
     exit
 }
 trap cleanup SIGINT SIGTERM

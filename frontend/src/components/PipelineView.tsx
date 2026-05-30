@@ -27,7 +27,7 @@ function StatusIcon({ status }: { status: NodeStatus }) {
     case 'failed':
       return <AlertCircle className="w-5 h-5" style={{ color: '#ef4444' }} />;
     default:
-      return <Circle className="w-5 h-5" style={{ color: '#d1d5db' }} />;
+      return <Circle className="w-5 h-5" style={{ color: '#555555' }} />;
   }
 }
 
@@ -94,8 +94,8 @@ export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: P
             </button>
           )}
           <span className="text-xs px-2 py-0.5 rounded-full" style={{
-            background: mode === 'auto' ? '#d1fae5' : '#fef3c7',
-            color: mode === 'auto' ? '#065f46' : '#92400e',
+            background: mode === 'auto' ? 'rgba(16,163,127,0.15)' : 'rgba(245,158,11,0.15)',
+            color: mode === 'auto' ? '#6ee7b7' : '#fbbf24',
           }}>
             {mode === 'auto' ? '自动模式' : '手动模式'}
           </span>
@@ -176,11 +176,11 @@ export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: P
                 <div className="flex items-center mx-1 pt-8">
                   <div
                     className="h-0.5 w-10 rounded"
-                    style={{ background: isCompleted ? 'var(--accent)' : '#e5e5e5' }}
+                    style={{ background: isCompleted ? 'var(--accent)' : '#333333' }}
                   />
                   <ChevronRight
                     className="w-4 h-4"
-                    style={{ color: isCompleted ? 'var(--accent)' : '#d1d5db' }}
+                    style={{ color: isCompleted ? 'var(--accent)' : '#555555' }}
                   />
                 </div>
               )}
