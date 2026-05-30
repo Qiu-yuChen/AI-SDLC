@@ -115,7 +115,8 @@ def build_single_agent_crew(agent: Agent, task_description: str, expected_output
         description=task_description,
         agent=agent,
         expected_output=expected_output,
-        output_file=f"{output_dir}/_result.txt",
+        # output_file=f"{output_dir}/_result.txt",
+        output_file="_result.txt",
     )
     return Crew(
         agents=[agent],
