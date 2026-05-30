@@ -8,6 +8,12 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "🚀 AI-SDLC 启动中..."
 echo ""
 
+# ── 端口清理 ──
+echo "🧹 清理旧进程..."
+lsof -ti:8001 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+lsof -ti:5173 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+sleep 0.5
+
 # ── Backend ──
 echo "📦 启动后端 (FastAPI)..."
 cd "$PROJECT_DIR/backend"
@@ -28,7 +34,7 @@ if [ ! -f "venv/.deps_installed" ]; then
 fi
 
 # Start backend in background
-uvicorn main:app --reload --reload-exclude "venv/*" --host 0.0.0.0 --port 8000 &
+uvicorn main:app --reload --reload-exclude "venv/*" --host 0.0.0.0 --port 8001 &
 BACKEND_PID=$!
 echo "   后端 PID: $BACKEND_PID"
 
@@ -47,12 +53,18 @@ echo "   前端 PID: $FRONTEND_PID"
 
 echo ""
 echo "✅ 启动完成！"
-echo "   后端: http://localhost:8000"
+echo "   后端: http://localhost:8001"
 echo "   前端: http://localhost:5173"
-echo "   API文档: http://localhost:8000/docs"
+echo "   API文档: http://localhost:8001/docs"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 
-# Cleanup on exit
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
+# Cleanup on exit (kill process tree + free ports)
+cleanup() {
+    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
+    lsof -ti:8001 2>/dev/null | xargs -r kill -9 2>/dev/null
+    lsof -ti:5173 2>/dev/null | xargs -r kill -9 2>/dev/null
+    exit
+}
+trap cleanup SIGINT SIGTERM
 wait

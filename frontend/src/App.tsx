@@ -249,7 +249,7 @@ export default function App() {
                 mode={activeBatch.mode}
                 onRefresh={refreshBatch}
               />
-              <ReActLog batchId={activeBatchId} />
+              <ReActLog batchId={activeBatchId} batchStatus={activeBatch.status} />
               <FilePreview
                 batchId={activeBatchId}
                 nodes={activeBatch.nodes}

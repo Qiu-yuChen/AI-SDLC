@@ -59,7 +59,23 @@ export function connectWs(
 ): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const host = window.location.host;
-  const ws = new WebSocket(`${protocol}://${host}/ws/batch/${batchId}/stream`);
+  const url = `${protocol}://${host}/ws/batch/${batchId}/stream`;
+  const ws = new WebSocket(url);
+
+  let closed = false;
+
+  ws.onopen = () => {
+    // Keep-alive ping
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send('ping');
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000);
+
+    ws.addEventListener('close', () => clearInterval(pingInterval));
+  };
 
   ws.onmessage = (msg) => {
     try {
@@ -71,23 +87,15 @@ export function connectWs(
   };
 
   ws.onclose = () => {
-    onClose?.();
-  };
-
-  ws.onerror = (err) => {
-    console.error('WebSocket error:', err);
-  };
-
-  // Keep-alive ping
-  const pingInterval = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send('ping');
-    } else {
-      clearInterval(pingInterval);
+    if (!closed) {
+      closed = true;
+      onClose?.();
     }
-  }, 30000);
+  };
 
-  ws.addEventListener('close', () => clearInterval(pingInterval));
+  ws.onerror = () => {
+    // Error events are followed by close events, handled above
+  };
 
   return ws;
 }

@@ -6,12 +6,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': 'http://localhost:8001',
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'http://localhost:8001',
         ws: true,
+        changeOrigin: true,
       },
-      '/workspace': 'http://localhost:8000',
+      '/workspace': 'http://localhost:8001',
     },
   },
 })

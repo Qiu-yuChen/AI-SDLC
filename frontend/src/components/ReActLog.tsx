@@ -13,115 +13,137 @@ interface LogEntry {
 
 interface Props {
   batchId: string;
+  batchStatus?: string;
 }
 
-export function ReActLog({ batchId }: Props) {
+export function ReActLog({ batchId, batchStatus }: Props) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [collapsed, setCollapsed] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const idCounter = useRef(0);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    const ws = connectWs(
-      batchId,
-      (event: WsEvent) => {
-        idCounter.current += 1;
-        const now = new Date().toLocaleTimeString();
+    mountedRef.current = true;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let ws: WebSocket;
 
-        switch (event.type) {
-          case 'node_start':
-            setEntries((prev) => [
-              ...prev,
-              {
-                id: idCounter.current,
-                type: 'system',
-                agent: event.name,
-                content: `开始执行: ${event.name}`,
-                timestamp: now,
-              },
-            ]);
-            break;
+    function connect() {
+      if (!mountedRef.current) return;
 
-          case 'react_step':
-            if (event.step?.thought) {
+      ws = connectWs(
+        batchId,
+        (event: WsEvent) => {
+          if (!mountedRef.current) return;
+          idCounter.current += 1;
+          const now = new Date().toLocaleTimeString();
+
+          switch (event.type) {
+            case 'node_start':
               setEntries((prev) => [
                 ...prev,
                 {
                   id: idCounter.current,
-                  type: 'thought',
+                  type: 'system',
                   agent: event.name,
-                  content: event.step!.thought!,
+                  content: `开始执行: ${event.name}`,
                   timestamp: now,
                 },
               ]);
-            }
-            if (event.step?.action) {
+              break;
+
+            case 'react_step':
+              if (event.step?.thought) {
+                setEntries((prev) => [
+                  ...prev,
+                  {
+                    id: idCounter.current,
+                    type: 'thought',
+                    agent: event.name,
+                    content: event.step!.thought!,
+                    timestamp: now,
+                  },
+                ]);
+              }
+              if (event.step?.action) {
+                setEntries((prev) => [
+                  ...prev,
+                  {
+                    id: idCounter.current,
+                    type: 'action',
+                    agent: event.name,
+                    content: `调用工具: ${event.step!.action}(${event.step!.action_input || ''})`,
+                    timestamp: now,
+                  },
+                ]);
+              }
+              if (event.step?.observation) {
+                setEntries((prev) => [
+                  ...prev,
+                  {
+                    id: idCounter.current,
+                    type: 'observation',
+                    agent: event.name,
+                    content: event.step!.observation!,
+                    timestamp: now,
+                  },
+                ]);
+              }
+              break;
+
+            case 'node_completed':
               setEntries((prev) => [
                 ...prev,
                 {
                   id: idCounter.current,
-                  type: 'action',
+                  type: 'system',
                   agent: event.name,
-                  content: `调用工具: ${event.step!.action}(${event.step!.action_input || ''})`,
+                  content: `完成: ${event.name} (${event.duration_seconds?.toFixed(1)}s)`,
                   timestamp: now,
                 },
               ]);
-            }
-            if (event.step?.observation) {
+              break;
+
+            case 'node_failed':
               setEntries((prev) => [
                 ...prev,
                 {
                   id: idCounter.current,
-                  type: 'observation',
+                  type: 'system',
                   agent: event.name,
-                  content: event.step!.observation!,
+                  content: `失败: ${event.name} — ${event.error || '未知错误'}`,
                   timestamp: now,
                 },
               ]);
-            }
-            break;
-
-          case 'node_completed':
-            setEntries((prev) => [
-              ...prev,
-              {
-                id: idCounter.current,
-                type: 'system',
-                agent: event.name,
-                content: `完成: ${event.name} (${event.duration_seconds?.toFixed(1)}s)`,
-                timestamp: now,
-              },
-            ]);
-            break;
-
-          case 'node_failed':
-            setEntries((prev) => [
-              ...prev,
-              {
-                id: idCounter.current,
-                type: 'system',
-                agent: event.name,
-                content: `失败: ${event.name} — ${event.error || '未知错误'}`,
-                timestamp: now,
-              },
-            ]);
-            break;
+              break;
+          }
+        },
+        () => {
+          if (!mountedRef.current) return;
+          setEntries((prev) => [
+            ...prev,
+            {
+              id: idCounter.current + 1,
+              type: 'system',
+              content: 'WebSocket 连接已关闭',
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ]);
+          // Auto-reconnect after 3s (only if batch is still running)
+          if (mountedRef.current) {
+            reconnectTimer = setTimeout(connect, 3000);
+          }
         }
-      },
-      () => {
-        setEntries((prev) => [
-          ...prev,
-          {
-            id: idCounter.current + 1,
-            type: 'system',
-            content: 'WebSocket 连接已关闭',
-            timestamp: new Date().toLocaleTimeString(),
-          },
-        ]);
-      }
-    );
+      );
+    }
 
-    return () => ws.close();
+    connect();
+
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
   }, [batchId]);
 
   useEffect(() => {
@@ -156,7 +178,7 @@ export function ReActLog({ batchId }: Props) {
         <div className="flex items-center gap-2">
           <Brain className="w-4 h-4" style={{ color: '#8b5cf6' }} />
           <h3 className="font-semibold text-sm" style={{ color: '#e0e0e0' }}>ReAct 思考日志</h3>
-          <span className="text-xs" style={{ color: '#6b7280' }}>({entries.length})</span>
+          <span className="text-xs" style={{ color: '#6b7280' }}>({entries.filter(e => e.type !== 'system').length})</span>
         </div>
         <span className="text-xs" style={{ color: '#6b7280' }}>{collapsed ? '展开' : '收起'}</span>
       </div>
