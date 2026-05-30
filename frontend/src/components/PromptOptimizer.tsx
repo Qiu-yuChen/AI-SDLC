@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, Copy, Check, Play, Send, RefreshCw, X, Edit3, Eye } from 'lucide-react';
+import { Sparkles, Copy, Check, Play, RefreshCw, X, Edit3, Eye } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface ChatQA {
@@ -8,6 +8,8 @@ interface ChatQA {
   resolved: boolean;
 }
 
+type OptimizerMode = 'standard' | 'sisyphus';
+
 interface Props {
   onImport: (spec: string) => void;
   onClose: () => void;
@@ -15,13 +17,21 @@ interface Props {
 
 export function PromptOptimizer({ onImport, onClose }: Props) {
   const [input, setInput] = useState('');
+  const [mode, setMode] = useState<OptimizerMode>('sisyphus');
   const [spec, setSpec] = useState('');
-  const [questions, setQuestions] = useState<string[]>([]);
   const [qaList, setQaList] = useState<ChatQA[]>([]);
+  const [round, setRound] = useState(0);
+  const [readinessScore, setReadinessScore] = useState(0);
+  const [coverageSummary, setCoverageSummary] = useState('');
+  const [isComplete, setIsComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
+  const maxRounds = 8;
+
+  const pendingQuestions = qaList.filter((qa) => !qa.resolved);
+  const canContinueSisyphus = mode === 'sisyphus' && !!spec && pendingQuestions.length === 0;
 
   async function handleOptimize() {
     if (!input.trim() || loading) return;
@@ -31,13 +41,16 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
       const res = await fetch('/api/prompt/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: input.trim() }),
+        body: JSON.stringify({ prompt: input.trim(), mode, max_rounds: maxRounds }),
       });
       if (!res.ok) throw new Error((await res.json()).detail || '请求失败');
       const data = await res.json();
       setSpec(data.spec);
-      setQuestions(data.questions || []);
       setQaList((data.questions || []).map((q: string) => ({ question: q, answer: '', resolved: false })));
+      setRound(data.round || 1);
+      setReadinessScore(data.readiness_score || 0);
+      setCoverageSummary(data.coverage_summary || '');
+      setIsComplete(!!data.is_complete);
     } catch (e: any) {
       setError(e.message || '生成失败');
     } finally {
@@ -45,9 +58,10 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
     }
   }
 
-  async function handleRefine() {
+  async function handleRefine(forceQuestions = false) {
     const unresolved = qaList.filter((qa) => !qa.resolved && qa.answer.trim());
-    if (unresolved.length === 0 || loading) return;
+    if (unresolved.length === 0 && !forceQuestions) return;
+    if (loading) return;
     setLoading(true);
     setError('');
     try {
@@ -58,12 +72,18 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
           spec,
           answers: unresolved.map((qa) => qa.answer),
           questions: unresolved.map((qa) => qa.question),
+          mode,
+          round,
+          max_rounds: maxRounds,
+          force_questions: forceQuestions,
+          qa_history: qaList
+            .filter((qa) => qa.resolved && qa.answer.trim())
+            .map((qa) => ({ question: qa.question, answer: qa.answer })),
         }),
       });
       if (!res.ok) throw new Error((await res.json()).detail || '完善失败');
       const data = await res.json();
       setSpec(data.spec);
-      setQuestions(data.questions || []);
       // Mark resolved questions and add new ones
       const newQaList = qaList.map((qa) =>
         qa.answer.trim() ? { ...qa, resolved: true } : qa
@@ -72,6 +92,10 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
         newQaList.push({ question: q, answer: '', resolved: false });
       });
       setQaList(newQaList);
+      setRound(data.round || round + 1);
+      setReadinessScore(data.readiness_score || 0);
+      setCoverageSummary(data.coverage_summary || '');
+      setIsComplete(!!data.is_complete);
     } catch (e: any) {
       setError(e.message || '完善失败');
     } finally {
@@ -92,7 +116,7 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
         <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-            <h2 className="text-lg font-semibold">一句话生成产品规格说明书</h2>
+            <h2 className="text-lg font-semibold">启发式生成产品规格说明书</h2>
           </div>
           <button onClick={onClose} className="p-1 rounded-md hover:bg-gray-800 transition">
             <X className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
@@ -106,6 +130,24 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
             <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--text-secondary)' }}>
               用一句话描述你想要开发的应用
             </label>
+            <div className="flex mb-3 rounded-lg p-0.5" style={{ background: 'var(--main-secondary)' }}>
+              <button
+                onClick={() => setMode('standard')}
+                className={`flex-1 py-2 text-sm font-medium rounded-md transition ${mode === 'standard' ? 'card shadow-sm' : ''}`}
+                style={{ color: mode === 'standard' ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                disabled={loading}
+              >
+                标准模式
+              </button>
+              <button
+                onClick={() => setMode('sisyphus')}
+                className={`flex-1 py-2 text-sm font-medium rounded-md transition ${mode === 'sisyphus' ? 'card shadow-sm' : ''}`}
+                style={{ color: mode === 'sisyphus' ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                disabled={loading}
+              >
+                西西弗斯模式
+              </button>
+            </div>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -192,8 +234,30 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
             </div>
           )}
 
+          {spec && mode === 'sisyphus' && (
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-3 rounded-lg" style={{ background: 'var(--main-secondary)', border: '1px solid var(--border)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>轮次</div>
+                <div className="text-lg font-semibold">{round}/{maxRounds}</div>
+              </div>
+              <div className="p-3 rounded-lg" style={{ background: 'var(--main-secondary)', border: '1px solid var(--border)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>准备度</div>
+                <div className="text-lg font-semibold">{readinessScore}%</div>
+              </div>
+              <div className="p-3 rounded-lg" style={{ background: 'var(--main-secondary)', border: '1px solid var(--border)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>状态</div>
+                <div className="text-sm font-semibold">{isComplete ? '可进入流水线' : '继续澄清'}</div>
+              </div>
+              {coverageSummary && (
+                <div className="col-span-3 p-3 rounded-lg text-sm" style={{ background: 'rgba(16,163,127,0.08)', border: '1px solid rgba(16,163,127,0.18)', color: 'var(--text-secondary)' }}>
+                  {coverageSummary}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Follow-up questions */}
-          {qaList.length > 0 && (
+          {(qaList.length > 0 || canContinueSisyphus) && (
             <div className="space-y-3">
               <span className="text-sm font-medium block" style={{ color: 'var(--text-secondary)' }}>
                 帮我完善需求
@@ -233,7 +297,7 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
               ))}
               {qaList.some((qa) => !qa.resolved && qa.answer.trim()) && (
                 <button
-                  onClick={handleRefine}
+                  onClick={() => handleRefine(false)}
                   disabled={loading}
                   className="btn btn-primary w-full"
                 >
@@ -247,6 +311,26 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
                     <>
                       <RefreshCw className="w-4 h-4" />
                       更新规格说明书
+                    </>
+                  )}
+                </button>
+              )}
+              {canContinueSisyphus && (
+                <button
+                  onClick={() => handleRefine(true)}
+                  disabled={loading || round >= maxRounds}
+                  className="btn w-full"
+                >
+                  {loading ? (
+                    <>
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      继续启发式追问
                     </>
                   )}
                 </button>
