@@ -506,6 +506,15 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
         }
         if (event.type === 'node_stopped') setBatchStatus('stopped');
 
+        if (event.type === 'rollback') {
+          setBatchStatus('running');
+          addMsg({
+            id: nextId(), role: 'assistant', type: 'text',
+            content: `⏪ 回退到「${event.node_id}」，从该阶段重新执行`,
+            timestamp: now(),
+          });
+        }
+
         if (event.type === 'node_completed' && event.node_id === '质量评分') {
                 setBatchStatus('completed');
           getBatch(currentBatchId)

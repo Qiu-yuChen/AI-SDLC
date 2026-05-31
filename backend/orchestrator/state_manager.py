@@ -121,6 +121,38 @@ class StateManager:
         batch["updated_at"] = now
         self._write_status(batch)
 
+    def rollback_to(self, node_id: str) -> dict:
+        """Reset a node and all subsequent nodes to pending for re-execution."""
+        batch = self.load()
+        if not batch:
+            return {}
+        if node_id not in batch["nodes"]:
+            return {}
+
+        now = datetime.now(timezone.utc).isoformat()
+        start_idx = NODE_ORDER.index(node_id)
+
+        for nid in NODE_ORDER[start_idx:]:
+            node = batch["nodes"][nid]
+            node["status"] = "pending"
+            node["started_at"] = None
+            node["finished_at"] = None
+            node["duration_seconds"] = None
+            node["error"] = None
+            node["quality_score"] = None
+            node["output_files"] = []
+            node["updated_at"] = now
+
+        batch["status"] = "created"
+        batch["current_node"] = node_id
+        batch["updated_at"] = now
+
+        if "scoring" in batch:
+            del batch["scoring"]
+
+        self._write_status(batch)
+        return batch
+
     def append_log(self, entry: dict):
         """Append an entry to execution_log.json"""
         logs = self._read_log()

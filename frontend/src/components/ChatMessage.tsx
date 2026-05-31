@@ -14,7 +14,7 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/hljs/yaml';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/hljs/markdown';
 import { FileText, CheckCircle, Loader, Circle, AlertCircle, Brain, Wrench, Eye, X, Download, Archive, Folder, Zap, RotateCcw, ChevronDown, ChevronRight, ChevronUp, MoreHorizontal } from 'lucide-react';
 import type { ChatMessage as ChatMsg, PipelineNodeStatus, ReactLogEntry } from '../types/chat';
-import { retryNode } from '../api/client';
+import { retryNode, rollbackNode } from '../api/client';
 
 SyntaxHighlighter.registerLanguage('python', python);
 SyntaxHighlighter.registerLanguage('javascript', javascript);
@@ -66,10 +66,14 @@ function PipelineCard({ nodes, currentActivity, batchId }: { nodes: PipelineNode
     if (!batchId) return;
     retryNode(batchId, nodeId);
   };
+  const handleRollback = (nodeId: string) => {
+    if (!batchId) return;
+    rollbackNode(batchId, nodeId);
+  };
   return (
     <div className="pipeline-card">
       {nodes.map((node) => (
-        <div key={node.node_id} className={`pipeline-card-node ${node.status}`}>
+        <div key={node.node_id} className={`pipeline-card-node ${node.status}`} style={{ position: 'relative' }}>
           <span className="text-sm">{NODE_ICONS[node.node_id] || '📋'}</span>
           <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{node.node_id}</span>
           <StatusIcon status={node.status} />
@@ -86,6 +90,11 @@ function PipelineCard({ nodes, currentActivity, batchId }: { nodes: PipelineNode
             {(node.status === 'failed' || node.status === 'stopped') && batchId && (
               <button onClick={() => handleRetry(node.node_id)} className="ml-2 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(16,163,127,0.1)', color: 'var(--accent)' }}>
                 <RotateCcw className="w-3 h-3 inline mr-0.5" />重试
+              </button>
+            )}
+            {node.status === 'completed' && batchId && (
+              <button onClick={() => handleRollback(node.node_id)} className="pipeline-rollback-btn ml-2 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', opacity: 0, transition: 'opacity 0.15s' }}>
+                <RotateCcw className="w-3 h-3 inline mr-0.5" />回退
               </button>
             )}
           </span>
@@ -240,7 +249,7 @@ function FileListCard({ files, onFileClick: _onFileClick, selectedFile: _sel, ba
     setExpanded(filePath);
     if (!previews[filePath]) {
       try {
-        const res = await fetch(`/workspace/docs/已生成/${batchId}/${filePath}`);
+        const res = await fetch(`/api/batches/${batchId}/file/${filePath}`);
         if (res.ok) {
           const text = await res.text();
           setPreviews((p) => ({ ...p, [filePath]: text }));
@@ -376,9 +385,9 @@ export function ChatMessage({ message, batchId, onFilePreview }: { message: Chat
           <div className="my-2 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
             <div className="flex items-center gap-1 px-3 py-2 text-xs" style={{ background: 'var(--main-secondary)', color: 'var(--text-muted)' }}>
               🖼️ 交付海报
-              <a href={`/workspace/docs/已生成/${batchId}/${message.posterUrl}`} target="_blank" download className="ml-auto" style={{ color: 'var(--accent)' }}>下载</a>
+              <a href={`/api/batches/${batchId}/poster`} target="_blank" download className="ml-auto" style={{ color: 'var(--accent)' }}>下载</a>
             </div>
-            <img src={`/workspace/docs/已生成/${batchId}/${message.posterUrl}`} alt="交付海报" style={{ width: '100%', display: 'block' }} />
+            <img src={`/api/batches/${batchId}/poster`} alt="交付海报" style={{ width: '100%', display: 'block' }} />
           </div>
         )}
       </div>

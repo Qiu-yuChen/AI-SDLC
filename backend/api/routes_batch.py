@@ -11,7 +11,7 @@ from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
 from config import DOCS_INPUT, DOCS_OUTPUT, SRC_OUTPUT, TEST_OUTPUT
@@ -180,6 +180,15 @@ async def retry_node(batch_id: str, node_id: str):
     engine = OrchestratorEngine(batch_id)
     engine.set_loop(asyncio.get_running_loop())
     result = await asyncio.to_thread(engine.retry_node, node_id)
+    return result
+
+
+@router.post("/batches/{batch_id}/rollback/{node_id}")
+async def rollback_node(batch_id: str, node_id: str):
+    """回退到指定节点：重置该节点及后续所有节点，从该节点重新执行"""
+    engine = OrchestratorEngine(batch_id)
+    engine.set_loop(asyncio.get_running_loop())
+    result = await asyncio.to_thread(engine.rollback_and_run, node_id)
     return result
 
 
@@ -391,3 +400,33 @@ async def export_batch_artifacts(batch_id: str):
             ),
         },
     )
+
+
+@router.get("/batches/{batch_id}/poster")
+async def get_poster(batch_id: str):
+    """获取交付海报图片"""
+    from pathlib import Path as P
+    poster_dir = DOCS_OUTPUT / batch_id / "交付海报"
+    if not poster_dir.exists():
+        raise HTTPException(404, "海报尚未生成")
+    poster_path = poster_dir / "poster.png"
+    if not poster_path.exists():
+        raise HTTPException(404, "海报文件不存在")
+    return FileResponse(
+        str(poster_path),
+        media_type="image/png",
+        filename=f"{batch_id}_poster.png",
+    )
+
+
+@router.get("/batches/{batch_id}/file/{file_path:path}")
+async def get_batch_file(batch_id: str, file_path: str):
+    """获取批次内任意文件（解决中文路径问题）"""
+    full_path = DOCS_OUTPUT / batch_id / file_path
+    if not full_path.exists():
+        raise HTTPException(404, "文件不存在")
+    if not str(full_path).startswith(str(DOCS_OUTPUT / batch_id)):
+        raise HTTPException(403, "无权访问")
+    import mimetypes
+    mime, _ = mimetypes.guess_type(str(full_path))
+    return FileResponse(str(full_path), media_type=mime or "application/octet-stream")

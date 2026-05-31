@@ -655,6 +655,7 @@ body {
 .pipeline-card-node.running { background: linear-gradient(135deg, rgba(16,163,127,0.18) 0%, rgba(16,163,127,0.06) 100%); border-left: 3px solid var(--accent); animation: pipeline-pulse 2s infinite; }
 .pipeline-card-node.failed { background: linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.04) 100%); border-left: 3px solid #ef4444; }
 .pipeline-card-node.pending { background: rgba(128,128,128,0.05); border-left: 3px solid transparent; }
+.pipeline-card-node:hover .pipeline-rollback-btn { opacity: 1 !important; }
 @keyframes pipeline-pulse { 0%,100%{box-shadow:0 0 8px rgba(16,163,127,0.15)} 50%{box-shadow:0 0 20px rgba(16,163,127,0.35)} }
 .pipeline-current-activity { display:flex; align-items:center; gap:6px; padding:6px 10px; margin-top:6px; border-radius:6px; background:rgba(16,163,127,0.06); }
 .pipeline-activity-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pipeline-pulse 1.5s infinite; }

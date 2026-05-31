@@ -53,6 +53,7 @@ export type WsEventType =
   | 'batch_stopped'
   | 'batch_resumed'
   | 'node_stopped'
+  | 'rollback'
   | 'scoring_completed'
   | 'poster_ready';
 

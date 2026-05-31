@@ -76,6 +76,11 @@ export async function retryNode(batchId: string, nodeId: string): Promise<void> 
   if (!res.ok) throw new Error(await res.text());
 }
 
+export async function rollbackNode(batchId: string, nodeId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/rollback/${nodeId}`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 export async function fetchScoringReport(batchId: string): Promise<ScoringReport> {
   const res = await fetch(`/workspace/docs/已生成/${batchId}/质量评分/scoring_report.json`);
   if (!res.ok) throw new Error('Report not found');

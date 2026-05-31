@@ -109,6 +109,30 @@ class OrchestratorEngine:
 
         return {"status": "completed", "node": node_id}
 
+    def rollback_and_run(self, node_id: str) -> dict:
+        """Rollback to a node: reset it and all subsequent nodes, then re-execute from that node."""
+        from orchestrator.state_manager import NODE_ORDER
+        state = self.sm.load()
+        if not state:
+            return {"status": "error", "message": "Batch not found"}
+        if node_id not in state["nodes"]:
+            return {"status": "error", "message": f"Unknown node: {node_id}"}
+
+        self.sm.rollback_to(node_id)
+        self.sm.append_log({"event": "rollback", "node": node_id})
+        self._broadcast("rollback", {"node_id": node_id, "message": f"回退到 {node_id}，重新执行"})
+
+        spec_file = state.get("spec_file")
+        start_idx = NODE_ORDER.index(node_id)
+        for nid in NODE_ORDER[start_idx:]:
+            s = self.sm.load() or {}
+            if s.get("nodes", {}).get(nid, {}).get("status") == "completed":
+                continue
+            self._ensure_not_stopped()
+            self._execute_node(nid, spec_file)
+
+        return {"status": "completed", "rolled_back_from": node_id}
+
     def _execute_node(self, node_id: str, spec_file: str):
         """Execute a single agent node with state tracking and WS broadcast."""
         node_name = NODE_NAMES[node_id]
@@ -189,12 +213,22 @@ class OrchestratorEngine:
             _ = str(crew_output) if crew_output else ""
             duration = (datetime.now(timezone.utc) - start).total_seconds()
 
+            # 代码生成阶段：审查回环 (生成→审查→修复)
+            if node_id == "代码生成":
+                try:
+                    from orchestrator.code_review_loop import run_code_review_loop
+                    review_score = run_code_review_loop(self.batch_id)
+                    if review_score:
+                        self.sm.append_log({"event": "code_review_done", "score": review_score})
+                except Exception:
+                    pass
+
             from config import DOCS_OUTPUT
             node_dir = DOCS_OUTPUT / self.batch_id / node_id
             output_files = []
             if node_dir.exists():
                 for f in node_dir.rglob("*"):
-                    if f.is_file():
+                    if f.is_file() and "__pycache__" not in str(f):
                         output_files.append(str(f.relative_to(DOCS_OUTPUT / self.batch_id)))
 
             self.sm.update_node(node_id, "completed", output_files=output_files)
@@ -211,16 +245,6 @@ class OrchestratorEngine:
                 "duration_seconds": duration,
                 "output_files": output_files,
             })
-
-            # 代码生成阶段：审查回环 (生成→审查→修复)
-            if node_id == "代码生成":
-                try:
-                    from orchestrator.code_review_loop import run_code_review_loop
-                    review_score = run_code_review_loop(self.batch_id)
-                    if review_score:
-                        self.sm.append_log({"event": "code_review_done", "score": review_score})
-                except Exception:
-                    pass
 
             # 飞书进度回推
             try:
@@ -445,7 +469,7 @@ class OrchestratorEngine:
     def _generate_poster(self):
         """后台生成交付海报（SDXL）"""
         try:
-            from config import DOCS_OUTPUT, WORKSPACE_ROOT
+            from config import DOCS_OUTPUT
             from pathlib import Path
 
             batch_dir = DOCS_OUTPUT / self.batch_id
@@ -455,16 +479,15 @@ class OrchestratorEngine:
             if poster_path.exists():
                 return
 
-            # 1. Qwen 生成海报提示词
-            spec_content = ""
-            status = self.sm.load()
-            spec_file = status.get("spec_file", "") if status else ""
-            if spec_file:
-                spec_path = WORKSPACE_ROOT / "docs" / "待生成" / spec_file
-                if spec_path.exists():
-                    spec_content = spec_path.read_text(encoding="utf-8")[:2000]
+            # 1. 从概要设计文档提取关键词（比项目名更丰富）
+            design_content = ""
+            design_dir = batch_dir / "概要设计"
+            if design_dir.exists():
+                for md_file in sorted(design_dir.rglob("*.md")):
+                    design_content = md_file.read_text(encoding="utf-8")[:3000]
+                    break
 
-            prompt = self._generate_poster_prompt(spec_content)
+            prompt = self._generate_poster_prompt(design_content)
             if not prompt:
                 prompt = "modern software engineering project delivery poster, tech blueprint style"
 
