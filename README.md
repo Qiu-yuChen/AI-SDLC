@@ -61,7 +61,7 @@ bash scripts/run.sh       # 一键启动（随机分配端口）
 | 阶段 | 说明 |
 |------|------|
 | 📐 概要设计 | 读取规格书 → 生成含 Mermaid 架构图、API 定义、数据模型的 7 章设计文档 |
-| 💻 代码生成 | 读取设计文档 → 生成 Python FastAPI 全栈代码（含 admin 后台） |
+| 💻 代码生成 | `openai/glm-5.1` | 智谱 GLM-5.1 |
 | 🧪 单元测试 | 读取代码 → 生成 pytest 测试套件，覆盖正常/边界/异常场景 |
 | 📊 质量评分 | SWE-bench F2P/P2P + radon 圈复杂度 + RepoZero 黑盒验证 |
 | 🖼️ 交付海报 | SDXL 生成 1024×768 项目交付海报 |
@@ -96,19 +96,25 @@ bash scripts/run.sh       # 一键启动（随机分配端口）
 | Agent | 默认模型 | 说明 |
 |-------|---------|------|
 | 概要设计 | `openai/qwen-input` | 本地 Qwen 4B (LoRA 微调版) |
-| 代码生成 | `deepseek/deepseek-chat` | DeepSeek |
+| 代码生成 | `openai/glm-5.1` | 智谱 GLM-5.1 |
 | 单元测试 | 可配置 | Kimi / GLM / OpenAI 任意 |
 | 提示词优化 | `openai/qwen-input` | 本地 Qwen 4B |
 
 通过 `.env` 修改 `DESIGN_MODEL` / `CODEGEN_MODEL` / `TEST_MODEL` / `PROMPT_MODEL` 即可切换。
 
-### 微信接入
+### 飞书接入
+
+飞书 SDK 长连接模式，无需公网 URL：
 
 ```
-微信 → 公众号回调 → POST /api/wechat → AI-SDLC → 自动执行流水线 → 返回结果
+
+飞书发消息 → lark-oapi WSS → AI-SDLC → 自动执行流水线 → 回复 + 进度推送
+
 ```
 
-配置 `.env` 中 `WECHAT_TOKEN`，公众号后台填 URL 即可。
+配置 `.env` 中 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，飞书开放平台开启长连接即可。
+
+支持每个阶段完成自动推送到飞书（概要设计/代码生成/测试/评分）。
 
 ---
 
@@ -124,7 +130,7 @@ ai-sdlc/
 │   │   ├── routes_prompt.py       # 提示词优化 (标准 / 西西弗斯)
 │   │   ├── routes_ws.py           # WebSocket 流
 │   │   ├── routes_stt.py          # 语音转文字 (Whisper)
-│   │   └── routes_wechat.py       # 微信公众号 webhook
+│   │   └── routes_feishu.py       # 飞书 Bot (SDK 长连接)
 │   ├── orchestrator/
 │   │   ├── engine.py              # 流程调度 + 质量审查 + 海报生成
 │   │   ├── crew_factory.py        # CrewAI Agent 工厂 (per-agent model)
@@ -241,6 +247,6 @@ QWEN_VLLM_API_BASE=http://127.0.0.1:8002/v1
 # Kimi Code API
 MOONSHOT_API_BASE=https://api.kimi.com/coding/v1
 
-# WeChat Official Account
-WECHAT_TOKEN=ai_sdlc_token
-```
+# Feishu Bot
+FEISHU_APP_ID=cli_xxxxxxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxxxx

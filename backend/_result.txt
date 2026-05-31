@@ -4,36 +4,32 @@
 
 ### 1.1 项目背景与目标
 
-随着公司业务的快速发展，员工日常通勤需求增加，现有车辆资源无法满足临时用车需求。为提高车辆使用效率，降低管理成本，特开发“员工临时车辆预约系统”，实现员工对车辆的在线预约、审批、使用和归还全流程管理。
+随着公司业务的快速发展，员工日常通勤需求增加，现有车辆资源无法满足临时用车需求。为提升车辆使用效率、降低管理成本、规范用车流程，特开发“员工临时车辆预约系统”。
 
-本系统旨在：
-- 实现员工临时用车的在线预约与审批
-- 提高车辆使用透明度与管理效率
-- 降低人为干预和资源浪费
-- 支持移动端与PC端双平台使用
+本系统旨在实现员工临时用车的在线申请、审批、调度与使用管理，提高车辆使用透明度与可追溯性，优化车辆资源分配，减少闲置与浪费，支持移动端操作，提升用户体验。
 
 ### 1.2 系统范围与边界
 
 **系统范围**：
-- 员工临时车辆预约申请
-- 预约审批流程管理
-- 车辆状态管理
-- 使用与归还记录
-- 报表与统计分析
+- 员工临时用车申请与审批流程
+- 车辆信息管理与状态更新
+- 用车调度与通知机制
+- 历史记录与统计报表
 
 **系统边界**：
-- 不包括车辆维修、保养、保险等后端运维管理
-- 不包括车辆调度、路线规划、油耗监控等扩展功能
-- 不包含与外部交通系统（如公交、地铁）的集成
+- 不包含公务用车系统（如公务出差用车）
+- 不包含车辆维修、保养、保险等管理功能
+- 不包含费用结算与财务对账
+- 不涉及外部车辆平台（如滴滴、高德）
 
 ### 1.3 用户角色定义
 
 | 角色 | 权限说明 |
 |------|----------|
-| 员工 | 可查看可用车辆、提交预约申请、查看审批状态、查看历史记录 |
-| 部门主管 | 可审批员工预约申请、查看本部门员工预约情况 |
-| 行政/车辆管理员 | 可查看所有预约、管理车辆信息、处理异常、生成报表 |
-| 系统管理员 | 可配置系统参数、用户权限、维护系统数据 |
+| **员工** | 提交用车申请、查看审批状态、查看已预约车辆信息、查看历史记录 |
+| **部门主管** | 审批员工申请、查看本部门用车情况、导出数据 |
+| **行政/车辆管理员** | 查看所有申请、审批/驳回申请、管理车辆信息、查看用车统计、设置规则、发布通知 |
+| **系统管理员** | 系统配置、用户管理、权限分配、日志审计、数据备份 |
 
 ## 2. 系统架构设计
 
@@ -42,259 +38,365 @@
 ```mermaid
 graph TD
     A[前端] --> B[API网关]
-    B --> C[用户服务]
-    B --> D[审批服务]
-    B --> E[车辆服务]
-    B --> F[报表服务]
-    C --> G[用户管理数据库]
-    D --> H[审批流程数据库]
-    E --> I[车辆信息数据库]
-    F --> J[统计数据库]
-    G --> K[CSV模拟数据库]
-    H --> K
-    I --> K
-    J --> K
+    B --> C[后端服务]
+    C --> D[车辆管理模块]
+    C --> E[用车申请模块]
+    C --> F[审批流程模块]
+    C --> G[通知模块]
+    C --> H[统计报表模块]
+    C --> I[数据库]
+    I --> J[CSV文件（模拟数据库）]
 
     style A fill:#f9f,stroke:#333
     style B fill:#bbf,stroke:#333
     style C fill:#bbf,stroke:#333
-    style D fill:#bbf,stroke:#333
-    style E fill:#bbf,stroke:#333
-    style F fill:#bbf,stroke:#333
-    style G fill:#f9f,stroke:#333
-    style H fill:#f9f,stroke:#333
+    style D fill:#fff,stroke:#333
+    style E fill:#fff,stroke:#333
+    style F fill:#fff,stroke:#333
+    style G fill:#fff,stroke:#333
+    style H fill:#fff,stroke:#333
     style I fill:#f9f,stroke:#333
     style J fill:#f9f,stroke:#333
-    style K fill:#f9f,stroke:#333
 ```
 
 ### 2.2 分层说明
 
-**表示层（Presentation Layer）**
-- 前端界面：基于 HTML/JS/React/Vue 构建
-- 支持 PC 端和移动端响应式布局
-- 提供用户登录、预约提交、审批查看、报表展示等交互功能
-
-**业务逻辑层（Business Logic Layer）**
-- API 网关：统一入口，路由分发请求
-- 用户服务：处理用户登录、信息查询、预约提交
-- 审批服务：处理审批流程、状态流转、意见记录
-- 车辆服务：管理车辆信息、状态更新、可用车辆推荐
-- 报表服务：生成统计图表、导出 Excel 报表
-
-**数据访问层（Data Access Layer）**
-- 所有业务逻辑通过统一的 CSV 数据库进行数据读写
-- CSV 文件作为模拟数据库，存储用户、车辆、预约、审批、使用记录等数据
-- 数据文件路径：`/data/` 目录下，以 `.csv` 结尾
+- **表示层（Presentation Layer）**：前端页面（HTML/JS/React/Vue），负责用户交互、界面展示、数据绑定。
+- **业务逻辑层（Business Logic Layer）**：后端服务（FastAPI），负责核心业务流程处理，如申请提交、审批流转、车辆调度、通知发送。
+- **数据访问层（Data Access Layer）**：通过 CSV 文件模拟数据库，实现数据的读写操作，支持按时间、部门、状态等条件查询。
 
 ### 2.3 技术选型说明
 
-| 技术 | 说明 |
-|------|------|
-| **后端框架** | Python FastAPI（高性能异步框架，支持 RESTful API） |
-| **前端框架** | React/Vue.js（响应式、组件化开发） |
-| **数据库** | CSV 文件（模拟数据库，符合赛题要求） |
-| **API 设计** | RESTful 风格，使用标准 HTTP 方法 |
-| **开发工具** | VS Code + Git + Docker |
-| **部署方式** | Docker 容器化部署，支持本地或云环境 |
-
-> 说明：本系统严格遵循赛题要求，使用 CSV 模拟数据库，不使用 SQL/NoSQL 数据库，所有数据操作通过 CSV 文件读写实现。
+- **后端框架**：Python FastAPI
+  - 优势：高性能、异步支持、自动文档生成（Swagger/OpenAPI）、RESTful 风格支持
+- **前端框架**：HTML + JavaScript + Vue.js（可选）
+  - 优势：轻量、响应式、支持移动端
+- **数据存储**：CSV 文件（模拟数据库）
+  - 优势：简单、无需数据库部署、易于维护、适合小规模场景
+  - 说明：在本项目中，使用 CSV 文件模拟数据库，所有数据操作通过 Python 读写 CSV 实现，不使用 SQL 或 NoSQL
+- **接口风格**：RESTful 风格，使用标准 HTTP 方法（GET/POST/PUT/DELETE）
+- **部署方式**：本地或云服务器（如阿里云）运行 FastAPI 服务，前端静态资源托管于 CDN 或本地服务器
 
 ## 3. 模块划分
 
 ### 3.1 模块功能描述
 
-| 模块 | 功能描述 | 职责 |
-|------|----------|------|
-| **用户服务** | 处理用户登录、注册、信息查询、权限控制 | 提供用户身份验证、信息获取、权限判断 |
-| **车辆服务** | 管理车辆信息、状态、可用车辆推荐 | 提供车辆列表、状态查询、车辆状态更新 |
-| **预约服务** | 处理预约申请、状态流转、时间校验 | 提交预约、获取可用车辆、状态更新 |
-| **审批服务** | 处理审批流程、审批记录、状态更新 | 支持多级审批、审批意见填写、驳回处理 |
-| **报表服务** | 生成统计图表、导出报表 | 提供按部门、日期、车辆类型等维度的统计 |
-| **通知服务** | 发送短信、邮件、站内信提醒 | 支持预约提醒、审批结果通知 |
+| 模块 | 功能描述 |
+|------|----------|
+| **用车申请模块** | 员工填写用车信息（时间、事由、地点、用车类型），提交申请，系统自动记录并进入审批流程 |
+| **审批流程模块** | 支持多级审批（员工 → 部门主管 → 行政管理员），审批人可查看申请详情、填写意见、通过/驳回/退回 |
+| **车辆管理模块** | 管理员维护车辆信息（车牌、车型、状态），实时更新车辆状态（空闲/占用/维修） |
+| **预约调度模块** | 根据时间、距离、车辆状态自动推荐可用车辆，支持按时间优先、距离最近等策略 |
+| **通知模块** | 提交申请、审批变更、预约成功时自动发送通知（微信、短信、站内信） |
+| **历史记录与统计模块** | 员工查看个人用车历史，管理员查看用车总量、部门分布、高峰时段、车辆使用率等 |
 
 ### 3.2 模块间依赖关系
 
-- 用户服务 → 车辆服务：获取车辆列表用于预约选择
-- 用户服务 → 预约服务：提交预约申请
-- 预约服务 → 审批服务：将预约状态设置为“待审批”
-- 审批服务 → 预约服务：审批通过后更新状态为“已通过”
-- 车辆服务 → 用户服务：验证用户是否拥有预约权限
-- 报表服务 → 所有服务：获取历史数据生成统计
+- 用车申请模块 → 审批流程模块：申请提交后自动触发审批流程
+- 审批流程模块 → 车辆管理模块：审批通过后，调度模块调用车辆管理模块获取可用车辆
+- 车辆管理模块 → 预约调度模块：提供车辆状态信息，用于调度决策
+- 通知模块 → 所有模块：在关键节点（提交、审批、成功）触发通知
+- 历史记录模块 → 所有模块：从申请、审批、用车记录中提取数据生成报表
 
 ### 3.3 模块接口定义
 
-| 模块 | 接口 | 方法 | 路径 |
-|------|------|------|------|
-| 用户服务 | 获取用户信息 | GET | /api/users/{id} |
-| 用户服务 | 获取用户列表 | GET | /api/users |
-| 车辆服务 | 获取车辆列表 | GET | /api/vehicles |
-| 车辆服务 | 获取可用车辆 | GET | /api/vehicles/available |
-| 预约服务 | 提交预约申请 | POST | /api/appointments |
-| 预约服务 | 获取预约详情 | GET | /api/appointments/{id} |
-| 审批服务 | 提交审批 | POST | /api/approvals |
-| 审批服务 | 获取审批列表 | GET | /api/approvals |
-| 报表服务 | 获取统计报表 | GET | /api/reports |
+| 模块 | 接口 | 说明 |
+|------|------|------|
+| 用车申请模块 | POST /api/applications | 提交新申请 |
+| 用车申请模块 | GET /api/applications/me | 获取当前用户的所有申请 |
+| 审批流程模块 | GET /api/applications/approval | 获取待审批申请列表 |
+| 审批流程模块 | PUT /api/applications/{id}/approve | 审批通过 |
+| 审批流程模块 | PUT /api/applications/{id}/reject | 驳回申请 |
+| 审批流程模块 | PUT /api/applications/{id}/return | 退回申请 |
+| 车辆管理模块 | GET /api/vehicles | 获取所有车辆信息 |
+| 车辆管理模块 | POST /api/vehicles | 新增车辆 |
+| 车辆管理模块 | PUT /api/vehicles/{id} | 更新车辆信息 |
+| 车辆管理模块 | DELETE /api/vehicles/{id} | 删除车辆 |
+| 预约调度模块 | GET /api/schedule | 获取可用车辆推荐 |
+| 通知模块 | POST /api/notify | 发送通知（如短信、微信） |
+| 历史记录模块 | GET /api/history | 获取历史用车记录 |
 
 ## 4. API 接口设计
 
-### 4.1 REST API 端点列表
+### 4.1 用车申请相关接口
 
-| 方法 | 路径 | 请求参数 | 响应格式 | 说明 |
+| 方法 | 路径 | 请求参数 | 响应格式 | 示例 |
 |------|------|----------|----------|------|
-| GET | /api/users | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取用户列表 |
-| GET | /api/users/{id} | id | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 获取单个用户信息 |
-| GET | /api/vehicles | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取所有车辆 |
-| GET | /api/vehicles/available | start_time, end_time | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取可用车辆（按时间筛选） |
-| POST | /api/appointments | user_id, vehicle_id, start_time, end_time, purpose | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 提交预约申请 |
-| GET | /api/appointments/{id} | id | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 获取预约详情 |
-| POST | /api/approvals | appointment_id, approve_status, comment | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 提交审批 |
-| GET | /api/approvals | status | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取审批列表 |
-| GET | /api/reports | type, start_date, end_date | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 获取统计报表 |
-
-### 4.2 示例请求/响应
-
-#### 示例 1：提交预约申请
-
-**请求**：
-```json
-POST /api/appointments
-{
-  "user_id": "U1001",
-  "vehicle_id": "V001",
-  "start_time": "2024-06-15T09:00:00",
-  "end_time": "2024-06-15T12:00:00",
-  "purpose": "出差"
-}
-```
-
-**响应**：
-```json
-{
-  "code": 0,
-  "msg": "success",
+| POST | /api/applications | {
+  "user_name": "张三",
+  "user_id": "EMP001",
+  "department": "技术部",
+  "start_time": "2024-06-01T09:00:00",
+  "end_time": "2024-06-01T10:00:00",
+  "reason": "接送孩子",
+  "pickup_location": "公司楼下",
+  "dropoff_location": "家",
+  "vehicle_type": "私家车"
+} | {
+  "code": 200,
+  "message": "申请提交成功",
   "data": {
-    "appointment_id": "A20240615001",
+    "application_id": "APP20240601001",
     "status": "pending",
-    "apply_time": "2024-06-15T10:00:00"
+    "created_at": "2024-06-01T09:00:00"
   }
-}
-```
+} | |
 
-#### 示例 2：获取审批列表
-
-**请求**：
-```json
-GET /api/approvals?status=pending
-```
-
-**响应**：
-```json
-{
-  "code": 0,
-  "msg": "success",
+| GET | /api/applications/me | 无 | {
+  "code": 200,
+  "message": "获取成功",
   "data": [
     {
-      "appointment_id": "A20240615001",
-      "status": "pending",
-      "approver_id": "M001",
-      "apply_time": "2024-06-15T10:00:00"
+      "application_id": "APP20240601001",
+      "status": "approved",
+      "start_time": "2024-06-01T09:00:00",
+      "end_time": "2024-06-01T10:00:00",
+      "reason": "接送孩子",
+      "vehicle_type": "私家车"
     }
   ]
-}
-```
+} | |
+
+### 4.2 审批流程相关接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| GET | /api/applications/approval | 无 | {
+  "code": 200,
+  "message": "获取成功",
+  "data": [
+    {
+      "application_id": "APP20240601001",
+      "status": "pending",
+      "approver": "李四",
+      "department": "技术部"
+    }
+  ]
+} |
+
+| PUT | /api/applications/{id}/approve | 无 | {
+  "code": 200,
+  "message": "审批通过",
+  "data": {
+    "application_id": "APP20240601001",
+    "status": "approved"
+  }
+} |
+
+| PUT | /api/applications/{id}/reject | 无 | {
+  "code": 200,
+  "message": "驳回成功",
+  "data": {
+    "application_id": "APP20240601001",
+    "status": "rejected"
+  }
+} |
+
+| PUT | /api/applications/{id}/return | 无 | {
+  "code": 200,
+  "message": "退回成功",
+  "data": {
+    "application_id": "APP20240601001",
+    "status": "returned"
+  }
+} |
+
+### 4.3 车辆管理相关接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| GET | /api/vehicles | 无 | {
+  "code": 200,
+  "message": "获取成功",
+  "data": [
+    {
+      "vehicle_id": "V001",
+      "plate_number": "京A12345",
+      "type": "SUV",
+      "status": "available",
+      "department": "行政部"
+    }
+  ]
+} |
+
+| POST | /api/vehicles | {
+  "plate_number": "京A67890",
+  "type": "轿车",
+  "status": "available",
+  "department": "技术部"
+} | {
+  "code": 200,
+  "message": "车辆创建成功",
+  "data": {
+    "vehicle_id": "V002"
+  }
+} |
+
+| PUT | /api/vehicles/{id} | {
+  "plate_number": "京A67890",
+  "type": "轿车",
+  "status": "occupied"
+} | {
+  "code": 200,
+  "message": "车辆更新成功"
+} |
+
+| DELETE | /api/vehicles/{id} | 无 | {
+  "code": 200,
+  "message": "车辆删除成功"
+} |
+
+### 4.4 预约调度接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| GET | /api/schedule | {
+  "start_time": "2024-06-01T09:00:00",
+  "end_time": "2024-06-01T10:00:00"
+} | {
+  "code": 200,
+  "message": "调度成功",
+  "data": [
+    {
+      "vehicle_id": "V001",
+      "plate_number": "京A12345",
+      "distance": "2km",
+      "estimated_time": "10分钟"
+    }
+  ]
+} |
+
+### 4.5 通知接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| POST | /api/notify | {
+  "type": "application_submitted",
+  "user_id": "EMP001",
+  "message": "您的用车申请已提交，等待审批"
+} | {
+  "code": 200,
+  "message": "通知发送成功"
+} |
+
+### 4.6 历史记录接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| GET | /api/history | {
+  "start_date": "2024-06-01",
+  "end_date": "2024-06-30",
+  "department": "技术部"
+} | {
+  "code": 200,
+  "message": "获取成功",
+  "data": [
+    {
+      "user_id": "EMP001",
+      "start_time": "2024-06-01T09:00:00",
+      "end_time": "2024-06-01T10:00:00",
+      "reason": "接送孩子"
+    }
+  ]
+} |
 
 ## 5. 数据模型设计
 
 ### 5.1 CSV 表结构定义（模拟数据库）
 
-#### 表1：users.csv
-| 字段名 | 类型 | 是否必填 | 说明 |
-|--------|------|----------|------|
-| user_id | string | 是 | 唯一标识符，如 U1001 |
-| name | string | 是 | 姓名 |
-| department | string | 是 | 所属部门 |
-| phone | string | 是 | 手机号码 |
-| email | string | 否 | 邮箱 |
-| role | string | 是 | 角色（employee, manager, admin） |
-| status | string | 是 | 状态（active, inactive） |
+#### 表1：用车申请表（applications.csv）
 
-#### 表2：vehicles.csv
-| 字段名 | 类型 | 是否必填 | 说明 |
-|--------|------|----------|------|
-| vehicle_id | string | 是 | 车辆唯一标识，如 V001 |
-| plate_number | string | 是 | 车牌号 |
-| model | string | 是 | 车型 |
-| color | string | 是 | 颜色 |
-| status | string | 是 | 状态（available, occupied, under_maintenance） |
-| department | string | 是 | 所属部门 |
-| create_time | datetime | 是 | 创建时间 |
+| 字段名 | 类型 | 是否必填 | 约束 | 说明 |
+|--------|------|----------|------|------|
+| application_id | string | 是 | 唯一标识符，格式：APPYYYYMMDDNNN | 系统自动生成 |
+| user_id | string | 是 | 员工工号 | 唯一，对应员工表 |
+| user_name | string | 是 | 员工姓名 | 与用户表关联 |
+| department | string | 是 | 部门名称 | 例如：技术部、财务部 |
+| start_time | datetime | 是 | 用车开始时间 | 格式：YYYY-MM-DDTHH:MM:SS |
+| end_time | datetime | 是 | 用车结束时间 | 必须大于 start_time |
+| reason | string | 否 | 用车事由 | 可选，如“接送孩子” |
+| pickup_location | string | 是 | 起点 | 例如：公司楼下 |
+| dropoff_location | string | 是 | 终点 | 例如：家 |
+| vehicle_type | string | 是 | 用车类型 | 如：私家车、公司车 |
+| status | string | 是 | 申请状态 | 可选值：pending（待审批）、approved（已通过）、rejected（已驳回）、returned（已退回） |
+| created_at | datetime | 是 | 创建时间 | 系统时间 |
+| updated_at | datetime | 是 | 更新时间 | 系统时间 |
 
-#### 表3：appointments.csv
-| 字段名 | 类型 | 是否必填 | 说明 |
-|--------|------|----------|------|
-| appointment_id | string | 是 | 预约唯一标识，如 A20240615001 |
-| user_id | string | 是 | 提交人ID |
-| vehicle_id | string | 是 | 车辆ID |
-| start_time | datetime | 是 | 开始时间 |
-| end_time | datetime | 是 | 结束时间 |
-| purpose | string | 是 | 用车目的 |
-| status | string | 是 | 状态（pending, approved, rejected, used） |
-| apply_time | datetime | 是 | 提交时间 |
-| approve_time | datetime | 否 | 审批时间 |
-| remark | string | 否 | 备注 |
+#### 表2：车辆信息表（vehicles.csv）
 
-#### 表4：approval_logs.csv
-| 字段名 | 类型 | 是否必填 | 说明 |
-|--------|------|----------|------|
-| log_id | string | 是 | 日志唯一标识 |
-| appointment_id | string | 是 | 预约ID |
-| approver_id | string | 是 | 审批人ID |
-| approve_status | string | 是 | 审批结果（approved, rejected） |
-| comment | string | 否 | 审批意见 |
-| approve_time | datetime | 是 | 审批时间 |
+| 字段名 | 类型 | 是否必填 | 约束 | 说明 |
+|--------|------|----------|------|------|
+| vehicle_id | string | 是 | 唯一标识符，格式：V001 | 系统自动生成 |
+| plate_number | string | 是 | 车牌号 | 例如：京A12345 |
+| type | string | 是 | 车型 | 如：SUV、轿车 |
+| status | string | 是 | 车辆状态 | 可选值：available（空闲）、occupied（占用中）、maintenance（维修中） |
+| department | string | 是 | 所属部门 | 例如：行政部 |
+| created_at | datetime | 是 | 创建时间 | 系统时间 |
+| updated_at | datetime | 是 | 更新时间 | 系统时间 |
 
-#### 表5：usage_records.csv
-| 字段名 | 类型 | 是否必填 | 说明 |
-|--------|------|----------|------|
-| record_id | string | 是 | 使用记录ID |
-| appointment_id | string | 是 | 预约ID |
-| start_time | datetime | 是 | 实际开始时间 |
-| end_time | datetime | 是 | 实际结束时间 |
-| actual_duration | float | 是 | 实际使用时长（分钟） |
-| remark | string | 否 | 备注 |
+#### 表3：审批记录表（approvals.csv）
+
+| 字段名 | 类型 | 是否必填 | 约束 | 说明 |
+|--------|------|----------|------|------|
+| approval_id | string | 是 | 唯一标识符，格式：APPRYYYYMMDDNNN | 系统自动生成 |
+| application_id | string | 是 | 关联申请ID | 外键关联 applications.csv |
+| approver_name | string | 是 | 审批人姓名 | 例如：李四 |
+| approver_id | string | 是 | 审批人ID | 与用户表关联 |
+| department | string | 是 | 审批部门 | 例如：技术部 |
+| action | string | 是 | 审批动作 | 可选值：approve（通过）、reject（驳回）、return（退回） |
+| comment | string | 否 | 审批意见 | 可选 |
+| created_at | datetime | 是 | 审批时间 | 系统时间 |
+
+#### 表4：通知记录表（notifications.csv）
+
+| 字段名 | 类型 | 是否必填 | 约束 | 说明 |
+|--------|------|----------|------|------|
+| notification_id | string | 是 | 唯一标识符，格式：NOTIYYYYMMDDNNN | 系统自动生成 |
+| user_id | string | 是 | 接收人ID | 与用户表关联 |
+| type | string | 是 | 通知类型 | 如：application_submitted、approval_approved |
+| message | string | 是 | 通知内容 | 例如：\"您的申请已通过\" |
+| sent_at | datetime | 是 | 发送时间 | 系统时间 |
+| status | string | 是 | 发送状态 | 可选值：sent（已发送）、failed（失败） |
 
 ### 5.2 表间关系说明
 
-- `users` 表与 `appointments` 表：一对一关系，`user_id` 为外键
-- `vehicles` 表与 `appointments` 表：一对一关系，`vehicle_id` 为外键
-- `appointments` 表与 `approval_logs` 表：一对多关系，`appointment_id` 为外键
-- `appointments` 表与 `usage_records` 表：一对一关系，`appointment_id` 为外键
+- `applications` 表与 `approvals` 表：一对多关系，一个申请可被多次审批（如主管审批、行政审批）
+- `applications` 表与 `vehicles` 表：通过 `vehicle_type` 和调度逻辑关联，非直接外键
+- `approvals` 表与 `users` 表：审批人通过 `approver_id` 关联员工表
+- `notifications` 表与 `applications` 表：通过 `user_id` 关联，通知基于申请事件触发
 
 ### 5.3 示例数据
 
-**users.csv 示例**：
+#### applications.csv
+
 ```csv
-user_id,name,department,phone,email,role,status
-U1001,张三,技术部,13800138000,zhangsan@company.com,employee,active
-U1002,李四,销售部,13900139000,lisi@company.com,employee,active
-M001,王五,技术部主管,13700137000,wangwu@company.com,manager,active
-A001,赵六,行政部,13600136000,zhao@company.com,admin,active
+application_id,user_id,user_name,department,start_time,end_time,reason,pickup_location,dropoff_location,vehicle_type,status,created_at,updated_at
+APP20240601001,EMP001,张三,技术部,2024-06-01T09:00:00,2024-06-01T10:00:00,接送孩子,公司楼下,家,私家车,pending,2024-06-01T09:00:00,2024-06-01T09:00:00
+APP20240601002,EMP002,李四,财务部,2024-06-01T14:00:00,2024-06-01T15:00:00,临时加班,公司门口,家,公司车,approved,2024-06-01T14:00:00,2024-06-01T14:00:00
 ```
 
-**vehicles.csv 示例**：
+#### vehicles.csv
+
 ```csv
-vehicle_id,plate_number,model,color,status,department,create_time
-V001,京A12345,丰田卡罗拉,白色,available,技术部,2024-01-01T00:00:00
-V002,京B67890,本田雅阁,蓝色,available,销售部,2024-01-02T00:00:00
-V003,京C54321,大众帕萨特,黑色,occupied,技术部,2024-01-03T00:00:00
+vehicle_id,plate_number,type,status,department,created_at,updated_at
+V001,京A12345,SUV,available,行政部,2024-06-01T00:00:00,2024-06-01T00:00:00
+V002,京A67890,轿车,occupied,技术部,2024-06-01T00:00:00,2024-06-01T00:00:00
 ```
 
-**appointments.csv 示例**：
+#### approvals.csv
+
 ```csv
-appointment_id,user_id,vehicle_id,start_time,end_time,purpose,status,apply_time,approve_time,remark
-A20240615001,U1001,V001,2024-06-15T09:00:00,2024-06-15T12:00:00,出差,pending,2024-06-15T10:00:00,
-A20240615002,U1002,V002,2024-06-15T14:00:00,2024-06-15T16:00:00,会议,pending,2024-06-15T11:00:00,
+approval_id,application_id,approver_name,approver_id,department,action,comment,created_at
+APPR20240601001,APP20240601001,李四,EMP004,技术部,approve,无,2024-06-01T09:10:00
+APPR20240601002,APP20240601002,王五,EMP005,财务部,approve,已通过,2024-06-01T14:05:00
+```
+
+#### notifications.csv
+
+```csv
+notification_id,user_id,type,message,sent_at,status
+NOTI20240601001,EMP001,application_submitted,您的用车申请已提交，等待审批,2024-06-01T09:01:00,sent
+NOTI20240601002,EMP002,approval_approved,您的申请已通过，车辆已确认,2024-06-01T09:15:00,sent
 ```
 
 ## 6. 关键业务流程
@@ -304,74 +406,78 @@ A20240615002,U1002,V002,2024-06-15T14:00:00,2024-06-15T16:00:00,会议,pending,2
 ```mermaid
 sequenceDiagram
     participant 员工
+    participant 系统
     participant 部门主管
     participant 行政管理员
-    participant 系统
 
-    员工->>系统: 提交预约申请
-    系统->>系统: 校验车辆可用性
-    系统->>系统: 生成预约ID，状态设为\"pending\"
-    系统->>部门主管: 发送审批通知
-    部门主管->>系统: 审批通过（或拒绝）
-    alt 审批通过
-        系统->>系统: 状态更新为\"approved\"
-        系统->>员工: 发送使用提醒
-    else 审批拒绝
-        系统->>系统: 状态更新为\"rejected\"
-        系统->>员工: 发送驳回通知
-    end
-    员工->>系统: 取车（扫码或输入验证码）
-    系统->>系统: 记录使用开始时间
-    员工->>系统: 归还车辆
-    系统->>系统: 记录使用结束时间，生成使用记录
-    系统->>系统: 车辆状态更新为\"available\"
+    员工->>系统: 提交用车申请
+    系统->>系统: 生成申请ID，记录到applications.csv
+    系统->>系统: 发送通知（申请已提交）
+    系统->>系统: 推送审批任务
+    部门主管->>系统: 审批通过/驳回
+    系统->>系统: 更新status，记录审批日志
+    系统->>行政管理员: 通知车辆调度
+    行政管理员->>系统: 推荐可用车辆
+    系统->>系统: 更新车辆状态（占用）
+    系统->>员工: 发送通知（车辆已确认）
+    系统->>系统: 记录用车历史
 ```
 
 ### 6.2 异常处理流程
 
-- **预约时间冲突**：系统检查车辆在指定时间段内是否已被占用，若冲突则提示“该时间段车辆已被占用”并阻止提交
-- **车辆状态异常**：若车辆状态为“维修”或“不可用”，则提示“该车辆当前不可用”
-- **审批超时**：若审批超过24小时未完成，系统自动标记为“已超时”并通知管理员
-- **用户信息错误**：提交时校验用户ID、手机号、邮箱等字段，若错误则提示“信息不完整”
-- **网络错误**：请求失败时返回错误码 500，并记录日志
+| 异常场景 | 处理策略 |
+|----------|----------|
+| 申请时间冲突（如与已预约车辆重叠） | 系统提示“该时间段已有车辆使用”，拒绝提交 |
+| 用车时间超过公司允许范围（如超过1小时） | 系统提示“用车时长超过限制”，拒绝提交 |
+| 车辆状态为维修中或占用中 | 系统提示“无可用车辆”，推荐其他时间或方式 |
+| 审批人未登录 | 系统提示“审批人未登录”，自动跳转登录页 |
+| 数据库写入失败 | 系统记录错误日志，提示“系统繁忙，请稍后重试” |
+| 通知发送失败 | 系统记录失败日志，尝试重发（最多3次） |
 
 ## 7. 非功能性需求
 
 ### 7.1 性能指标
 
-- 支持并发用户数 ≥ 500
-- 页面响应时间 ≤ 2秒（95%请求）
-- 预约提交响应时间 ≤ 1秒
-- 数据读取时间 ≤ 1秒（1000条记录以内）
+- 页面响应时间：所有接口响应时间 < 2秒
+- 并发支持：支持1000+用户并发访问
+- 数据查询性能：基于时间、部门的查询响应时间 < 1秒
 
 ### 7.2 安全策略
 
-- 所有接口使用 HTTPS 传输
-- 用户登录采用 JWT 令牌认证
-- 敏感字段（如手机号、身份证）进行加密存储
-- 权限控制采用 RBAC 模型，角色与权限严格绑定
-- 操作日志记录所有关键操作（登录、审批、修改）
-- 防止 SQL 注入、XSS 攻击（前端校验 + 后端过滤）
+- 所有接口使用 HTTPS 加密传输
+- 登录采用 JWT 认证，Token 过期时间 15 分钟
+- 用户密码加密存储（使用 bcrypt）
+- 登录失败超过5次自动锁定账户 10 分钟
+- 所有操作记录日志（用户、时间、IP、操作类型）
+- 接口访问控制：基于角色的权限控制（RBAC）
 
 ### 7.3 错误处理策略
 
-- 错误码规范：
-  - `0`：成功
-  - `10001`：参数缺失或格式错误
-  - `10002`：权限不足
-  - `10003`：数据不存在
-  - `10004`：系统错误
-- 错误响应格式：
+- 所有接口返回统一格式：
   ```json
   {
-    "code": 10001,
-    "msg": "参数错误：缺少user_id",
-    "data": null
+    "code": 200/400/500,
+    "message": "成功/失败信息",
+    "data": "可选数据"
   }
   ```
-- 错误日志记录：所有错误信息记录到系统日志中，便于排查
-- 用户提示：前端显示友好的错误信息，避免暴露系统内部错误
+- 错误码说明：
+  - 200：成功
+  - 400：请求参数错误
+  - 401：未授权
+  - 403：权限不足
+  - 404：资源不存在
+  - 500：服务器内部错误
+- 前端统一错误提示，不暴露敏感信息
+- 500 错误时，后端记录详细错误日志，发送邮件给管理员
 
-> 本设计文档版本：v1.0
-> 最后更新日期：2024年6月10日
-> 编制单位：IT部 - 企业服务组
+---
+> **版本信息**：v1.0
+> **编写日期**：2024年6月
+> **编写单位**：公司行政部 & IT部
+> **审批人**：XXX（行政总监）
+
+*本说明书为员工临时车辆预约系统的基础设计文档，后续可根据实际使用情况迭代优化。*
+
+---
+> **说明**：本系统采用 CSV 模拟数据库，所有数据读写操作通过 Python 读写 CSV 文件实现，不使用 SQL 或 NoSQL。系统为轻量级、快速部署的解决方案，适用于中小型企业或内部使用。
