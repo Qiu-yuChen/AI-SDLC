@@ -1,8 +1,22 @@
 """Design Agent Prompt Builder"""
 
 
-def build_design_prompt(spec_path: str, output_dir: str) -> str:
-    """Build the task description for the Design Agent"""
+def build_design_prompt(spec_path: str, output_dir: str, examples: str = "") -> str:
+    """Build the task description for the Design Agent
+
+    Args:
+        spec_path: 规格说明书路径
+        output_dir: 输出目录
+        examples: 历史参考范例（来自 skill_store），可为空
+    """
+
+    example_section = ""
+    if examples:
+        example_section = f"""
+{examples}
+
+请参考以上范例的结构、深度和格式来生成新的设计文档。
+"""
 
     return f"""
 ## 任务：生成概要设计文档
@@ -11,7 +25,7 @@ def build_design_prompt(spec_path: str, output_dir: str) -> str:
 产品规格说明书路径：`{spec_path}`
 
 请先使用 `read_file` 工具读取完整的产品规格说明书。
-
+{example_section}
 ### 输出要求
 生成一份完整的概要设计文档，保存为：
 `{output_dir}/概要设计文档.md`

@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     react_max_iter: int = 25
     react_verbose: bool = True
 
+    # 每节点最大迭代次数（0 = 使用 react_max_iter）
+    design_max_iter: int = 25
+    codegen_max_iter: int = 20
+    test_max_iter: int = 15
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

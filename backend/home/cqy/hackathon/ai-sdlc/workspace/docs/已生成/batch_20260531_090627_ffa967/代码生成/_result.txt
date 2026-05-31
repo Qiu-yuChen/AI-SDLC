@@ -1,0 +1,7 @@
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="write_file">
+<｜｜DSML｜｜parameter name="content" string="true">reservation_id,name,employee_id,phone,parking_site,date,license_plate,status
+</｜｜DSML｜｜parameter>
+<｜｜DSML｜｜parameter name="path" string="true">/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260531_090627_ffa967/代码生成/data/reservations.csv</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>

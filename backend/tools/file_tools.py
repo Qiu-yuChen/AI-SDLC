@@ -1,13 +1,23 @@
 """ReAct File Tools — File system operations for Agents"""
-
+import functools
 from pathlib import Path
 from crewai.tools import tool
+
+
+@functools.lru_cache(maxsize=128)
+def _cached_read(path: str, mtime: float) -> str:
+    """Cached file read, invalidated by file modification time"""
+    file_path = Path(path)
+    content = file_path.read_text(encoding="utf-8")
+    if len(content) > 20000:
+        content = content[:20000] + f"\n\n... (文件过长，已截断，共 {len(content)} 字符)"
+    return content
 
 
 @tool("read_file")
 def read_file(path: str) -> str:
     """
-    读取指定路径的文本文件内容。
+    读取指定路径的文本文件内容（带缓存加速）。
     参数 path: 文件路径（绝对路径或相对路径）
     返回: 文件内容字符串
     """
@@ -15,11 +25,8 @@ def read_file(path: str) -> str:
     if not file_path.exists():
         return f"❌ 文件不存在: {path}"
     try:
-        content = file_path.read_text(encoding="utf-8")
-        # Truncate if too long (safety for LLM context)
-        if len(content) > 20000:
-            content = content[:20000] + f"\n\n... (文件过长，已截断，共 {len(content)} 字符)"
-        return content
+        mtime = file_path.stat().st_mtime
+        return _cached_read(str(file_path.resolve()), mtime)
     except Exception as e:
         return f"❌ 读取失败: {str(e)}"
 

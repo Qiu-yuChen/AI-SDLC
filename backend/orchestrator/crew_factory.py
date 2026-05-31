@@ -3,6 +3,7 @@
 from crewai import Agent, Task, Crew, Process
 
 from config import DOCS_INPUT, DOCS_OUTPUT, settings
+from skills.skill_store import get_examples
 from agents.design_agent import build_design_prompt
 from agents.codegen_agent import build_codegen_prompt
 from agents.test_agent import build_test_prompt
@@ -71,7 +72,7 @@ def create_design_agent() -> Agent:
         llm=model,
         verbose=settings.react_verbose,
         allow_delegation=False,
-        max_iter=settings.react_max_iter,
+        max_iter=settings.design_max_iter or settings.react_max_iter,
         max_rpm=10,  # rate limit safety
     )
 
@@ -108,7 +109,7 @@ def create_codegen_agent() -> Agent:
         llm=model,
         verbose=settings.react_verbose,
         allow_delegation=False,
-        max_iter=settings.react_max_iter,
+        max_iter=settings.codegen_max_iter or settings.react_max_iter,
         max_rpm=10,
     )
 
@@ -143,7 +144,7 @@ def create_test_agent() -> Agent:
         llm=model,
         verbose=settings.react_verbose,
         allow_delegation=False,
-        max_iter=settings.react_max_iter,
+        max_iter=settings.test_max_iter or settings.react_max_iter,
         max_rpm=10,
     )
 
@@ -182,7 +183,8 @@ def build_design_crew(batch_id: str, spec_filename: str) -> Crew:
     output_dir = DOCS_OUTPUT / batch_id / "概要设计"
 
     agent = create_design_agent()
-    task_desc = build_design_prompt(str(spec_path), str(output_dir))
+    examples = get_examples("概要设计")
+    task_desc = build_design_prompt(str(spec_path), str(output_dir), examples)
     expected = "完整的概要设计文档（Markdown），包含架构设计、模块划分、API定义、数据模型"
 
     return build_single_agent_crew(agent, task_desc, expected, str(output_dir))
@@ -194,7 +196,8 @@ def build_codegen_crew(batch_id: str) -> Crew:
     output_dir = DOCS_OUTPUT / batch_id / "代码生成"
 
     agent = create_codegen_agent()
-    task_desc = build_codegen_prompt(str(design_doc), str(output_dir))
+    examples = get_examples("代码生成")
+    task_desc = build_codegen_prompt(str(design_doc), str(output_dir), examples)
     expected = "完整的项目源代码，语法正确可编译"
 
     return build_single_agent_crew(agent, task_desc, expected, str(output_dir))
@@ -207,7 +210,8 @@ def build_test_crew(batch_id: str) -> Crew:
     output_dir = DOCS_OUTPUT / batch_id / "单元测试"
 
     agent = create_test_agent()
-    task_desc = build_test_prompt(str(design_doc), str(code_dir), str(output_dir))
+    examples = get_examples("单元测试")
+    task_desc = build_test_prompt(str(design_doc), str(code_dir), str(output_dir), examples)
     expected = "完整的单元测试代码，覆盖率≥80%"
 
     return build_single_agent_crew(agent, task_desc, expected, str(output_dir))

@@ -48,7 +48,8 @@ export type WsEventType =
   | 'node_completed'
   | 'node_failed'
   | 'react_step'
-  | 'log';
+  | 'log'
+  | 'quality_review';
 
 export interface WsEvent {
   type: WsEventType;
@@ -56,6 +57,7 @@ export interface WsEvent {
   node_id?: string;
   name?: string;
   duration_seconds?: number;
+  score?: number;
   output_files?: string[];
   error?: string;
   step?: ReActStep;

@@ -1,8 +1,22 @@
 """CodeGen Agent Prompt Builder"""
 
 
-def build_codegen_prompt(design_doc_path: str, output_dir: str) -> str:
-    """Build the task description for the CodeGen Agent"""
+def build_codegen_prompt(design_doc_path: str, output_dir: str, examples: str = "") -> str:
+    """Build the task description for the CodeGen Agent
+
+    Args:
+        design_doc_path: 设计文档路径
+        output_dir: 输出目录
+        examples: 历史参考范例
+    """
+
+    example_section = ""
+    if examples:
+        example_section = f"""
+{examples}
+
+请参考以上范例的代码结构、风格和质量水平来生成新代码。
+"""
 
     return f"""
 ## 任务：根据概要设计文档生成源代码
@@ -14,6 +28,7 @@ def build_codegen_prompt(design_doc_path: str, output_dir: str) -> str:
 
 ### 输出要求
 生成完整的项目源代码到：`{output_dir}/`
+{example_section}
 
 ### 代码结构
 ```

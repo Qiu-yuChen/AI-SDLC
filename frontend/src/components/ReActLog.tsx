@@ -109,6 +109,14 @@ export function ReActLog({ batchId, batchStatus }: Props) {
                   content: `失败: ${event.name} — ${event.error || '未知错误'}`, timestamp: now },
               ]);
               break;
+
+            case 'quality_review':
+              setEntries((prev) => [
+                ...prev,
+                { id: idCounter.current, type: 'system', agent: event.name,
+                  content: `审查完成: ${event.name} 质量评分 ${event.score}%`, timestamp: now },
+              ]);
+              break;
           }
         },
         () => {

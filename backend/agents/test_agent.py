@@ -1,8 +1,23 @@
 """Test Agent Prompt Builder"""
 
 
-def build_test_prompt(design_doc_path: str, code_dir: str, output_dir: str) -> str:
-    """Build the task description for the Test Agent"""
+def build_test_prompt(design_doc_path: str, code_dir: str, output_dir: str, examples: str = "") -> str:
+    """Build the task description for the Test Agent
+
+    Args:
+        design_doc_path: 设计文档路径
+        code_dir: 源代码目录
+        output_dir: 输出目录
+        examples: 历史参考范例
+    """
+
+    example_section = ""
+    if examples:
+        example_section = f"""
+{examples}
+
+请参考以上范例的测试结构、覆盖深度和代码风格来生成新测试。
+"""
 
     return f"""
 ## 任务：根据源代码和设计文档生成单元测试
@@ -15,6 +30,7 @@ def build_test_prompt(design_doc_path: str, code_dir: str, output_dir: str) -> s
 
 ### 输出要求
 生成单元测试代码到：`{output_dir}/`
+{example_section}
 
 ### 测试代码结构
 ```

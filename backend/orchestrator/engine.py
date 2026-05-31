@@ -135,22 +135,28 @@ class OrchestratorEngine:
                 "output_files": output_files,
             })
 
-            # Run quality review after node completion
-            try:
-                from agents.quality_agent import run_quality_review
-                quality = run_quality_review(self.batch_id, node_id)
-                if isinstance(quality, dict) and "score" in quality:
-                    total = quality.get("total", 100)
-                    pct = round(quality["score"] / total * 100, 1) if total > 0 else 0
-                    self.sm.update_node(node_id, "completed", quality_score=pct)
-                    self._broadcast("quality_review", {
-                        "node_id": node_id,
-                        "name": node_name,
-                        "score": pct,
-                        "details": quality.get("issues", []),
-                    })
-            except Exception:
-                pass  # Quality review is non-critical
+            # Quality review runs in background — doesn't block pipeline
+            import threading
+            def _background_review():
+                try:
+                    from agents.quality_agent import run_quality_review
+                    from skills.skill_store import save_skill
+                    quality = run_quality_review(self.batch_id, node_id)
+                    if isinstance(quality, dict) and "score" in quality:
+                        total = quality.get("total", 100)
+                        pct = round(quality["score"] / total * 100, 1) if total > 0 else 0
+                        self.sm.update_node(node_id, "completed", quality_score=pct)
+                        self._broadcast("quality_review", {
+                            "node_id": node_id,
+                            "name": node_name,
+                            "score": pct,
+                            "details": quality.get("issues", []),
+                        })
+                        # 保存高分产出为技能，供后续批次参考
+                        save_skill(self.batch_id, node_id, pct)
+                except Exception:
+                    pass
+            threading.Thread(target=_background_review, daemon=True).start()
 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
