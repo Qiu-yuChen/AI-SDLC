@@ -1,4 +1,0 @@
-<｜｜DSML｜｜tool_calls>
-<｜｜DSML｜｜invoke name="write_file">
-</｜｜DSML｜｜invoke>
-</｜｜DSML｜｜tool_calls>

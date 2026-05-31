@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import python from 'react-syntax-highlighter/dist/esm/languages/hljs/python';
@@ -12,8 +12,9 @@ import css from 'react-syntax-highlighter/dist/esm/languages/hljs/css';
 import xml from 'react-syntax-highlighter/dist/esm/languages/hljs/xml';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/hljs/yaml';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/hljs/markdown';
-import { FileText, CheckCircle, Loader, Circle, AlertCircle, Brain, Wrench, Eye, X, Download, Archive, Folder, Zap } from 'lucide-react';
+import { FileText, CheckCircle, Loader, Circle, AlertCircle, Brain, Wrench, Eye, X, Download, Archive, Folder, Zap, RotateCcw, ChevronDown, ChevronRight, ChevronUp, MoreHorizontal } from 'lucide-react';
 import type { ChatMessage as ChatMsg, PipelineNodeStatus, ReactLogEntry } from '../types/chat';
+import { retryNode } from '../api/client';
 
 SyntaxHighlighter.registerLanguage('python', python);
 SyntaxHighlighter.registerLanguage('javascript', javascript);
@@ -60,7 +61,11 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
-function PipelineCard({ nodes, currentActivity }: { nodes: PipelineNodeStatus[]; currentActivity?: string }) {
+function PipelineCard({ nodes, currentActivity, batchId }: { nodes: PipelineNodeStatus[]; currentActivity?: string; batchId?: string }) {
+  const handleRetry = (nodeId: string) => {
+    if (!batchId) return;
+    retryNode(batchId, nodeId);
+  };
   return (
     <div className="pipeline-card">
       {nodes.map((node) => (
@@ -78,6 +83,11 @@ function PipelineCard({ nodes, currentActivity }: { nodes: PipelineNodeStatus[];
               node.status === 'running' ? '执行中...' :
               node.status === 'stopped' ? '已停止' :
               node.status === 'failed' ? '失败' : '等待中'}
+            {(node.status === 'failed' || node.status === 'stopped') && batchId && (
+              <button onClick={() => handleRetry(node.node_id)} className="ml-2 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(16,163,127,0.1)', color: 'var(--accent)' }}>
+                <RotateCcw className="w-3 h-3 inline mr-0.5" />重试
+              </button>
+            )}
           </span>
         </div>
       ))}
@@ -216,7 +226,35 @@ function FilePreviewCard({ content, loading, fileName, onClose }: { content: str
   );
 }
 
-function FileListCard({ files, onFileClick, selectedFile, batchId }: { files: string[]; onFileClick: (f: string) => void; selectedFile?: string | null; batchId?: string }) {
+function FileListCard({ files, onFileClick: _onFileClick, selectedFile: _sel, batchId }: { files: string[]; onFileClick: (f: string) => void; selectedFile?: string | null; batchId?: string }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [showAll, setShowAll] = useState(false);
+
+  const PREVIEW_COUNT = 10;
+  const visibleFiles = showAll ? files : files.slice(0, PREVIEW_COUNT);
+  const hasMore = files.length > PREVIEW_COUNT;
+
+  async function toggle(filePath: string) {
+    if (expanded === filePath) { setExpanded(null); return; }
+    setExpanded(filePath);
+    if (!previews[filePath]) {
+      try {
+        const res = await fetch(`/workspace/docs/已生成/${batchId}/${filePath}`);
+        if (res.ok) {
+          const text = await res.text();
+          setPreviews((p) => ({ ...p, [filePath]: text }));
+        } else {
+          setPreviews((p) => ({ ...p, [filePath]: '无法加载' }));
+        }
+      } catch {
+        setPreviews((p) => ({ ...p, [filePath]: '加载失败' }));
+      }
+    }
+  }
+
+  const isMarkdown = (f: string) => f.endsWith('.md');
+
   return (
     <div className="file-list-card">
       <div className="flex items-center gap-2 mb-2">
@@ -228,26 +266,64 @@ function FileListCard({ files, onFileClick, selectedFile, batchId }: { files: st
           </a>
         )}
       </div>
-      <div className="space-y-1">
-        {files.slice(0, 10).map((f) => (
-          <button
-            key={f}
-            onClick={() => onFileClick(f)}
-            className="file-list-item"
-            style={{
-              background: selectedFile === f ? 'rgba(16,163,127,0.08)' : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              width: '100%',
-              textAlign: 'left',
-            }}
-          >
-            <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
-            <span className="text-xs truncate">{f.split('/').pop()}</span>
-            <Eye className="w-3 h-3 shrink-0 ml-auto" style={{ color: 'var(--text-muted)' }} />
-          </button>
+      <div className="space-y-0.5">
+        {visibleFiles.map((f) => (
+          <div key={f}>
+            <button
+              onClick={() => toggle(f)}
+              className="file-list-item"
+              style={{ width: '100%', textAlign: 'left' }}
+            >
+              {expanded === f ? <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />}
+              <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+              <span className="text-xs truncate">{f.split('/').pop()}</span>
+            </button>
+            {expanded === f && (
+              <div className="mx-4 mb-2 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                <div className="max-h-48 overflow-auto p-2 text-xs" style={{ background: 'var(--main-secondary)' }}>
+                  {!previews[f] ? (
+                    <span style={{ color: 'var(--text-muted)' }}>加载中...</span>
+                  ) : previews[f] === '无法加载' || previews[f] === '加载失败' ? (
+                    <span style={{ color: 'var(--text-muted)' }}>{previews[f]}</span>
+                  ) : isMarkdown(f) ? (
+                    <div className="markdown-body" style={{ color: 'var(--text-primary)' }}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{previews[f].substring(0, 5000)}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <SyntaxHighlighter
+                      language={getLang(f)}
+                      style={atomOneDark}
+                      customStyle={{ margin: 0, padding: '8px', fontSize: '11px', background: 'transparent', maxHeight: '12rem', overflow: 'auto' }}
+                      wrapLongLines
+                    >
+                      {previews[f].substring(0, 3000)}
+                    </SyntaxHighlighter>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         ))}
-        {files.length > 10 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>... 及其他 {files.length - 10} 个文件</span>}
+        {hasMore && !showAll && (
+          <button
+            onClick={() => setShowAll(true)}
+            className="file-list-item"
+            style={{ width: '100%', textAlign: 'left', color: 'var(--accent)', fontStyle: 'italic' }}
+          >
+            <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+            <span className="text-xs">还有 {files.length - PREVIEW_COUNT} 个文件，点击展开全部</span>
+          </button>
+        )}
+        {showAll && hasMore && (
+          <button
+            onClick={() => { setShowAll(false); setExpanded(null); }}
+            className="file-list-item"
+            style={{ width: '100%', textAlign: 'left', color: 'var(--accent)', fontStyle: 'italic' }}
+          >
+            <ChevronUp className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+            <span className="text-xs">收起，仅显示前 {PREVIEW_COUNT} 个文件</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -282,7 +358,7 @@ export function ChatMessage({ message, batchId, onFilePreview }: { message: Chat
           </div>
         )}
 
-        {message.pipelineNodes && message.pipelineNodes.length > 0 && <PipelineCard nodes={message.pipelineNodes} currentActivity={message.currentActivity} />}
+        {message.pipelineNodes && message.pipelineNodes.length > 0 && <PipelineCard nodes={message.pipelineNodes} currentActivity={message.currentActivity} batchId={batchId} />}
         {message.scoring && <ScoringCard scoring={message.scoring} />}
         {message.type === 'file_list' && message.outputFiles && batchId && (
           <FileListCard files={message.outputFiles} onFileClick={(f) => onFilePreview?.(f)} selectedFile={message.selectedFile} batchId={batchId} />

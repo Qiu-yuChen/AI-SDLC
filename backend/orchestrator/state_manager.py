@@ -6,11 +6,12 @@ from typing import Optional, Dict, Any
 
 from config import DOCS_OUTPUT, DOCS_INPUT
 
-NODE_ORDER = ["概要设计", "代码生成", "单元测试"]
+NODE_ORDER = ["概要设计", "代码生成", "单元测试", "质量评分"]
 NODE_NAMES = {
     "概要设计": "概要设计",
     "代码生成": "代码生成",
     "单元测试": "单元测试",
+    "质量评分": "质量评分",
 }
 
 

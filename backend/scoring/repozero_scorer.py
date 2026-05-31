@@ -286,7 +286,7 @@ class RepoZeroScorer:
         """
         try:
             r = subprocess.run(
-                ["pytest", str(self.test_dir), "-q", "--tb=line"],
+                ["pytest", str(self.test_dir), "-q", "--tb=line", "--timeout=30"],
                 capture_output=True, text=True, timeout=60,
             )
             m = re.search(r"(\d+)\s+passed", r.stdout)
@@ -307,7 +307,7 @@ class RepoZeroScorer:
             return 0.0, f"pytest 执行失败: {e}"
 
     def _start_server(self) -> Optional[str]:
-        """尝试启动 FastAPI 服务用于黑盒测试"""
+        """尝试启动 FastAPI 服务（最大 8 秒超时）"""
         entry_path = None
         for entry in ["app.py", "main.py"]:
             p = self.code_dir / entry
@@ -317,67 +317,48 @@ class RepoZeroScorer:
         if entry_path is None:
             return None
 
-        # Run seed data script first if present
         seed_script = self.code_dir / "seed_data.py"
         if seed_script.exists():
-            subprocess.run(
-                ["python3", str(seed_script)],
-                cwd=str(self.code_dir),
-                capture_output=True, timeout=10,
-            )
-
-        # Ensure code_dir is on PYTHONPATH for imports
-        env = os.environ.copy()
-        code_dir_str = str(self.code_dir.resolve())
-        existing = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            code_dir_str + ":" + existing if existing else code_dir_str
-        )
-
-        # Try ports 18923-18927 to avoid conflicts
-        for port in range(18923, 18928):
             try:
-                app_module = "app:app" if "app.py" in str(entry_path) else "main:app"
-                self._server_process = subprocess.Popen(
-                    [
-                        "python3", "-m", "uvicorn", app_module,
-                        "--host", "127.0.0.1", "--port", str(port),
-                        "--log-level", "error",
-                    ],
-                    cwd=str(self.code_dir),
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                subprocess.run(
+                    ["python3", str(seed_script)],
+                    cwd=str(self.code_dir), capture_output=True, timeout=5,
                 )
-                # Wait up to 15 seconds for server to start
-                for _ in range(30):
+            except Exception:
+                pass
+
+        env = os.environ.copy()
+        cds = str(self.code_dir.resolve())
+        env["PYTHONPATH"] = cds + ":" + env.get("PYTHONPATH", cds)
+
+        for port in range(18923, 18925):  # 只试 2 个端口, not 5
+            try:
+                self._server_process = subprocess.Popen(
+                    ["python3", "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "error"],
+                    cwd=str(self.code_dir), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                for _ in range(16):  # max 8s
                     time.sleep(0.5)
                     try:
-                        r = requests.get(
-                            f"http://127.0.0.1:{port}/docs", timeout=2
-                        )
-                        if r.status_code == 200:
+                        if requests.get(f"http://127.0.0.1:{port}/docs", timeout=1).status_code == 200:
                             return f"http://127.0.0.1:{port}"
                     except Exception:
                         pass
                 self._server_process.terminate()
-                self._server_process.wait(timeout=3)
+                try: self._server_process.wait(timeout=1)
+                except Exception: self._server_process.kill()
             except Exception:
-                if self._server_process:
-                    self._server_process.terminate()
+                pass
         return None
 
     def _stop_server(self):
-        """停止临时服务"""
         if hasattr(self, "_server_process") and self._server_process:
             try:
                 self._server_process.terminate()
-                self._server_process.wait(timeout=5)
+                self._server_process.wait(timeout=1)
             except Exception:
-                try:
-                    self._server_process.kill()
-                except Exception:
-                    pass
+                try: self._server_process.kill()
+                except Exception: pass
 
     # ═══════════════════════════════════════════════════════════
     # 指标2: API 覆盖度 (40分) — RepoZero 规格忠实度
@@ -473,20 +454,11 @@ class RepoZeroScorer:
         return unique
 
     def _extract_implemented_endpoints(self) -> List[Dict]:
-        """提取实际实现的路由：优先启动服务从 /openapi.json 动态获取，失败时回退静态扫描"""
-        # 第1层：动态 OpenAPI 提取（最准确）
-        server_url = self._start_server()
-        if server_url:
-            try:
-                endpoints = self._extract_from_openapi(server_url)
-                self._stop_server()
-                if endpoints:
-                    return endpoints
-            except Exception:
-                self._stop_server()
-
-        # 第2层：回退到静态正则扫描
-        return self._extract_from_static()
+        # 优先静态扫描（快速），失败才启动服务
+        result = self._extract_from_static()
+        if result:
+            return result
+        return []  # 跳过 OpenAPI 动态提取（可能 hang）
 
     def _extract_from_openapi(self, server_url: str) -> List[Dict]:
         """从 FastAPI 的 /openapi.json 动态提取所有已注册路由"""

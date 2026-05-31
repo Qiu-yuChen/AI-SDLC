@@ -48,9 +48,6 @@ class OrchestratorEngine:
                 self._ensure_not_stopped()
                 self._execute_node(node_id, spec_file)
 
-            # 三阶段全部完成后 → 启动质量评分
-            self._run_scoring()
-
         except StopRequested as exc:
             current = self.sm.get_current_node()
             self.sm.stop_batch(str(exc))
@@ -137,8 +134,42 @@ class OrchestratorEngine:
                     "observation": "正在读取设计、代码和测试产物并计算质量评分。",
                 })
                 self._ensure_not_stopped()
-                self._run_scoring()
+
+                import threading as _th
+                _scoring_exc = [None]
+                def _safe_scoring():
+                    try: self._run_scoring()
+                    except Exception as e: _scoring_exc[0] = e
+                _scoring_thread = _th.Thread(target=_safe_scoring, daemon=True)
+                _scoring_thread.start()
+                _scoring_thread.join(timeout=90)
+                if _scoring_thread.is_alive():
+                    self.sm.append_log({"event": "scoring_timeout", "message": "评分超时(90s)，已跳过"})
+                    raise TimeoutError("评分超时(90s)")
+                if _scoring_exc[0]:
+                    raise _scoring_exc[0]
                 self._ensure_not_stopped()
+
+                from config import DOCS_OUTPUT
+                node_dir = DOCS_OUTPUT / self.batch_id / node_id
+                output_files = []
+                if node_dir.exists():
+                    for f in node_dir.rglob("*"):
+                        if f.is_file():
+                            output_files.append(str(f.relative_to(DOCS_OUTPUT / self.batch_id)))
+
+                self.sm.update_node(node_id, "completed", output_files=output_files)
+                self.sm.append_log({
+                    "event": "node_completed",
+                    "node": node_id,
+                    "name": node_name,
+                    "output_files": output_files,
+                })
+                self._broadcast("node_completed", {
+                    "node_id": node_id,
+                    "name": node_name,
+                    "output_files": output_files,
+                })
                 return
 
             builder = CREW_BUILDERS[node_id]
@@ -237,7 +268,7 @@ class OrchestratorEngine:
                 save_failure_lesson(self.batch_id, node_id, error_msg)
             except Exception:
                 pass
-            raise
+            # 不重新抛出 — 让流水线继续执行后续节点
 
     def _run_scoring(self):
         """Stage 4: quality scoring without LLM calls."""
@@ -299,6 +330,16 @@ class OrchestratorEngine:
         quality_dir = batch_dir / "质量评分"
         quality_dir.mkdir(parents=True, exist_ok=True)
         generate_reports(quality_dir, report)
+
+        status = self.sm.load() or {}
+        status["scoring"] = {
+            "composite_score": composite,
+            "design_score": d_score,
+            "code_score": c_score,
+            "test_score": t_score,
+            "repozero_score": rz_score,
+        }
+        self.sm._write_status(status)
 
         self.sm.append_log({
             "event": "scoring_completed",
