@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # LLM
     deepseek_api_key: str = ""
     openai_api_key: str = ""
+    openai_api_base: str = ""
     primary_model: str = "deepseek/deepseek-chat"
     fallback_model: str = "openai/gpt-4o-mini"
     llm_temperature: float = 0.3
@@ -44,14 +45,15 @@ settings = Settings()
 # LiteLLM model config with fallback
 def get_llm_config():
     """Return LiteLLM-compatible LLM configuration"""
+    api_base = settings.openai_api_base or (
+        "https://api.deepseek.com/v1"
+        if "deepseek" in settings.primary_model
+        else None
+    )
     return {
         "model": f"openai/{settings.primary_model.split('/')[-1]}",
         "api_key": settings.deepseek_api_key or settings.openai_api_key,
-        "api_base": (
-            "https://api.deepseek.com/v1"
-            if "deepseek" in settings.primary_model
-            else None
-        ),
+        "api_base": api_base,
         "temperature": settings.llm_temperature,
         "max_tokens": settings.llm_max_tokens,
         "timeout": settings.llm_timeout,

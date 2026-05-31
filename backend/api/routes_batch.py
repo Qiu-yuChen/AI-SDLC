@@ -1,12 +1,16 @@
 """Batch Management REST API"""
 import asyncio
+import io
 import uuid
 import json
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from config import DOCS_INPUT, DOCS_OUTPUT, SRC_OUTPUT, TEST_OUTPUT
@@ -37,6 +41,28 @@ class NodeActionRequest(BaseModel):
 
 class BatchResumeRequest(BaseModel):
     guidance: str = ""
+
+
+SKIP_EXPORT_FILES = {"batch_status.json", "execution_log.json", ".gitkeep"}
+
+
+def _safe_zip_name(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in value)
+    return safe.strip("._") or "artifacts"
+
+
+def _iter_artifact_files(batch_dir: Path) -> list[Path]:
+    """Return generated artifact files, excluding runtime metadata."""
+    files = []
+    for path in batch_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name in SKIP_EXPORT_FILES or path.suffix == ".zip":
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        files.append(path)
+    return sorted(files, key=lambda p: str(p.relative_to(batch_dir)))
 
 
 # ── Routes ────────────────────────────────────────────────
@@ -211,3 +237,99 @@ async def get_node_outputs(batch_id: str, node_id: str):
                 "name": f.name,
             })
     return {"files": sorted(files, key=lambda x: x["path"])}
+
+
+@router.get("/batches/{batch_id}/artifacts")
+async def get_batch_artifacts(batch_id: str):
+    """Get a visualizable summary of all generated artifacts for a batch."""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+
+    batch_dir = DOCS_OUTPUT / batch_id
+    if not batch_dir.exists():
+        raise HTTPException(404, "产物目录不存在")
+
+    grouped: dict[str, dict] = {}
+    total_size = 0
+    for file_path in _iter_artifact_files(batch_dir):
+        rel = file_path.relative_to(batch_dir)
+        parts = rel.parts
+        group_id = parts[0] if parts else "产物"
+        stat = file_path.stat()
+        total_size += stat.st_size
+        group = grouped.setdefault(
+            group_id,
+            {
+                "node_id": group_id,
+                "count": 0,
+                "size": 0,
+                "files": [],
+            },
+        )
+        group["count"] += 1
+        group["size"] += stat.st_size
+        group["files"].append({
+            "path": str(rel),
+            "name": file_path.name,
+            "size": stat.st_size,
+        })
+
+    groups = sorted(grouped.values(), key=lambda item: item["node_id"])
+    return {
+        "batch_id": batch_id,
+        "project_name": status.get("project_name", ""),
+        "status": status.get("status", "unknown"),
+        "total_files": sum(group["count"] for group in groups),
+        "total_size": total_size,
+        "groups": groups,
+    }
+
+
+@router.get("/batches/{batch_id}/export")
+async def export_batch_artifacts(batch_id: str):
+    """Download all generated artifacts as one ZIP file."""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+
+    batch_dir = DOCS_OUTPUT / batch_id
+    if not batch_dir.exists():
+        raise HTTPException(404, "产物目录不存在")
+
+    files = _iter_artifact_files(batch_dir)
+    if not files:
+        raise HTTPException(404, "暂无可导出的产物")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest = {
+            "batch_id": batch_id,
+            "project_name": status.get("project_name", ""),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "file_count": len(files),
+            "files": [str(path.relative_to(batch_dir)) for path in files],
+        }
+        zf.writestr(
+            "manifest.json",
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+        )
+        for file_path in files:
+            zf.write(file_path, arcname=str(file_path.relative_to(batch_dir)))
+
+    buffer.seek(0)
+    display_name = f"{_safe_zip_name(status.get('project_name') or batch_id)}_{batch_id}_artifacts.zip"
+    ascii_filename = f"{batch_id}_artifacts.zip"
+    encoded_filename = quote(display_name)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename={ascii_filename}; "
+                f"filename*=UTF-8''{encoded_filename}"
+            )
+        },
+    )

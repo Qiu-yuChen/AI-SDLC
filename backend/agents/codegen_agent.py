@@ -22,11 +22,8 @@ def build_codegen_prompt(design_doc_path: str, output_dir: str) -> str:
 ├── models.py              # 数据模型（CSV 读写封装）
 ├── routes.py              # API 路由
 ├── services.py            # 业务逻辑层
-├── utils.py               # 工具函数
-├── data/                  # CSV 数据文件目录
-│   ├── parks.csv          # 园区表
-│   ├── reservations.csv   # 预约记录表
-│   └── payments.csv       # 缴费记录表
+├── utils.py               # 工具函数（如需要）
+├── data/                  # CSV 数据文件目录，文件名必须来自概要设计中的业务实体
 ├── static/
 │   └── index.html         # 前端页面
 └── requirements.txt       # 依赖清单
@@ -39,6 +36,7 @@ def build_codegen_prompt(design_doc_path: str, output_dir: str) -> str:
 4. **CSV 操作**：封装 CSV 读写为类，支持增删改查
 5. **注释清晰**：每个模块、类和函数有 docstring
 6. **PEP 8 规范**：使用 `format_code_file` 格式化代码
+7. **贴合需求**：不得套用停车、预约、支付等旧模板，除非概要设计明确要求这些业务实体
 
 ### 技术约束
 - 数据库：使用 CSV 文件（赛题要求），不使用 SQLite/MySQL
@@ -49,9 +47,14 @@ def build_codegen_prompt(design_doc_path: str, output_dir: str) -> str:
 ### 工作流程（ReAct）
 1. 💭 读取概要设计文档，理解所有模块
 2. 💭 规划文件生成顺序（数据模型 → 服务层 → 路由 → 主入口 → 前端）
-3. 🎬 逐个使用 `write_file` 生成文件
+3. 🎬 逐个使用 `write_file` 生成文件；每次调用使用不同 path，不要重复相同 Action Input
 4. 👁️ 使用 `syntax_check` 验证语法
 5. 💭 如果有语法错误，分析并修复
 6. 🎬 使用 `format_code_file` 格式化代码
 7. 👁️ 使用 `list_directory` 确认所有文件已生成
+
+### 小模型执行约束
+- 优先生成一个可运行的最小版本，而不是过度拆分。
+- 如果概要设计没有明确数据文件名，使用与核心实体同名的 CSV，例如 todo/tasks 场景使用 `data/tasks.csv`。
+- 若一次修复失败，不要重复同一份 `write_file` 输入；改写内容后再调用，或继续生成剩余文件。
 """

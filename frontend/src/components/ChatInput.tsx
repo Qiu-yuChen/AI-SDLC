@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Play, Send, Square, Paperclip, X, FileText } from 'lucide-react';
+import { Play, Send, Square, Plus, X, FileText } from 'lucide-react';
 
 interface Props {
   onSend: (text: string, file?: File) => void;
@@ -32,14 +32,11 @@ export function ChatInput({ onSend, onStop, disabled, canStop, canResume }: Prop
   return (
     <div className="chat-input-bar">
       {file && (
-        <div className="file-chip">
-          <FileText className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-          <span className="text-xs truncate" style={{ color: '#c0c0c0' }}>{file.name}</span>
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            ({(file.size / 1024).toFixed(1)} KB)
-          </span>
+        <div className="input-file-chip">
+          <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+          <span className="input-file-chip-name">{file.name}</span>
           <button onClick={() => setFile(null)} className="file-chip-remove">
-            <X className="w-3 h-3" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
@@ -61,7 +58,7 @@ export function ChatInput({ onSend, onStop, disabled, canStop, canResume }: Prop
           title="上传 Markdown 文件"
           disabled={disabled || canStop}
         >
-          <Paperclip className="w-5 h-5" />
+          <Plus className="w-5 h-5" />
         </button>
         <input
           type="text"

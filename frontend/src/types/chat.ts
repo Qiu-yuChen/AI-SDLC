@@ -42,6 +42,7 @@ export interface ChatMessage {
   outputFiles?: string[];
   timestamp: string;
   loading?: boolean;
+  currentActivity?: string;
   selectedFile?: string | null;
   fileContent?: string;
   fileLoading?: boolean;

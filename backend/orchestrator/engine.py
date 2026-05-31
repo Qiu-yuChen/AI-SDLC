@@ -1,6 +1,7 @@
 """Orchestrator Engine - manages multi-agent pipeline execution."""
 
 import asyncio
+import os
 import threading
 import traceback
 from datetime import datetime, timezone
@@ -131,6 +132,37 @@ class OrchestratorEngine:
                 self._ensure_not_stopped()
                 return
 
+            if node_id == "单元测试" and os.getenv("AI_SDLC_TEST_FALLBACK", "").lower() in {"1", "true", "yes"}:
+                self._emit_react_step(node_id, node_name, {
+                    "action": "generate_smoke_tests",
+                    "observation": "本地小模型模式启用，生成可运行的基础 smoke tests。",
+                })
+                self._run_test_fallback()
+                self._ensure_not_stopped()
+                duration = (datetime.now(timezone.utc) - start).total_seconds()
+                from config import DOCS_OUTPUT
+                node_dir = DOCS_OUTPUT / self.batch_id / node_id
+                output_files = [
+                    str(f.relative_to(DOCS_OUTPUT / self.batch_id))
+                    for f in node_dir.rglob("*")
+                    if f.is_file()
+                ]
+                self.sm.update_node(node_id, "completed", output_files=output_files)
+                self.sm.append_log({
+                    "event": "node_completed",
+                    "node": node_id,
+                    "name": node_name,
+                    "duration_seconds": duration,
+                    "output_files": output_files,
+                })
+                self._broadcast("node_completed", {
+                    "node_id": node_id,
+                    "name": node_name,
+                    "duration_seconds": duration,
+                    "output_files": output_files,
+                })
+                return
+
             builder = CREW_BUILDERS[node_id]
             if node_id == "概要设计":
                 crew = builder(self.batch_id, spec_file, self._emit_react_step)
@@ -203,6 +235,98 @@ class OrchestratorEngine:
                 "error": error_msg,
             })
             raise
+
+    def _run_test_fallback(self):
+        """Generate conservative pytest smoke tests for local small-model runs."""
+        from config import DOCS_OUTPUT
+
+        batch_dir = DOCS_OUTPUT / self.batch_id
+        test_dir = batch_dir / "单元测试"
+        test_dir.mkdir(parents=True, exist_ok=True)
+
+        files = {
+            "conftest.py": '''"""Shared pytest fixtures for generated smoke tests."""
+import sys
+from pathlib import Path
+
+import pytest
+
+
+CODE_DIR = Path(__file__).resolve().parents[1] / "代码生成"
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+
+
+@pytest.fixture(scope="session")
+def code_dir():
+    return CODE_DIR
+''',
+            "test_generated_files.py": '''"""Static smoke tests for generated code files."""
+import py_compile
+
+
+def test_core_python_files_exist(code_dir):
+    expected = ["app.py", "models.py", "routes.py", "services.py"]
+    for name in expected:
+        assert (code_dir / name).exists(), f"{name} should exist"
+
+
+def test_generated_python_files_compile(code_dir):
+    for path in code_dir.glob("*.py"):
+        py_compile.compile(str(path), doraise=True)
+
+
+def test_frontend_file_exists(code_dir):
+    assert (code_dir / "static" / "index.html").exists()
+''',
+            "test_generated_app.py": '''"""Import and API smoke tests for generated FastAPI app."""
+import importlib
+
+
+def test_core_modules_importable():
+    for module_name in ["models", "services", "routes", "app"]:
+        module = importlib.import_module(module_name)
+        assert module is not None
+
+
+def test_app_exposes_fastapi_instance():
+    from fastapi import FastAPI
+
+    app_module = importlib.import_module("app")
+    assert isinstance(getattr(app_module, "app", None), FastAPI)
+
+
+def test_routes_module_exposes_router():
+    routes = importlib.import_module("routes")
+    assert hasattr(routes, "router")
+
+
+def test_services_module_has_public_api():
+    services = importlib.import_module("services")
+    public_names = [name for name in dir(services) if not name.startswith("_")]
+    assert public_names
+''',
+        }
+
+        output_files = []
+        for name, content in files.items():
+            path = test_dir / name
+            path.write_text(content, encoding="utf-8")
+            output_files.append(str(path.relative_to(batch_dir)))
+
+        self.sm.append_log({
+            "event": "test_fallback_generated",
+            "node": "单元测试",
+            "output_files": output_files,
+        })
+        self._broadcast("react_step", {
+            "node_id": "单元测试",
+            "name": "单元测试",
+            "step": {
+                "action": "write_file",
+                "observation": f"已生成 {len(output_files)} 个基础测试文件。",
+            },
+        })
 
     def _run_scoring(self):
         """Stage 4: quality scoring without LLM calls."""

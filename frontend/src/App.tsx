@@ -1,9 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, PanelLeftClose, PanelLeft, Zap, Sparkles } from 'lucide-react';
+import { Plus, Search, PanelLeftClose, PanelLeft, Zap, Sparkles, Sun, Moon } from 'lucide-react';
 import { ChatView } from './components/ChatView';
 import { PromptOptimizer } from './components/PromptOptimizer';
 import { listBatches } from './api/client';
 import type { BatchListItem } from './types';
+
+type Theme = 'light' | 'dark';
+
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem('theme');
+  if (stored === 'light' || stored === 'dark') return stored;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
 
 export default function App() {
   const [batches, setBatches] = useState<BatchListItem[]>([]);
@@ -12,6 +20,16 @@ export default function App() {
   const [batchSearch, setBatchSearch] = useState('');
   const [showOptimizer, setShowOptimizer] = useState(false);
   const [importSpec, setImportSpec] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((t) => t === 'light' ? 'dark' : 'light');
+  }
 
   useEffect(() => {
     loadBatches();
@@ -52,23 +70,33 @@ export default function App() {
   });
 
   return (
-    <div className="flex h-screen" style={{ background: 'var(--main-secondary)' }}>
+    <div className="flex h-screen" style={{ background: 'var(--main-bg)' }}>
       {/* Sidebar */}
       <div className={`sidebar flex-shrink-0 ${sidebarCollapsed ? 'hidden' : ''}`}>
-        <div className="p-4 border-b" style={{ borderColor: 'var(--sidebar-hover)' }}>
+        <div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Zap className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-              <h1 className="text-base font-bold tracking-tight">
+              <h1 className="text-base font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
                 AI-<span style={{ color: 'var(--accent)' }}>SDLC</span>
               </h1>
             </div>
-            <button
-              onClick={() => setSidebarCollapsed(true)}
-              className="p-1 rounded hover:bg-[var(--sidebar-hover)] transition"
-            >
-              <PanelLeftClose className="w-4 h-4" style={{ color: '#a0a0a0' }} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={toggleTheme}
+                className="sidebar-icon-btn"
+                title={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}
+              >
+                {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                className="sidebar-icon-btn"
+                title="收起侧边栏"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -77,9 +105,9 @@ export default function App() {
             onClick={handleNewChat}
             className="btn w-full mb-2 text-sm"
             style={{
-              background: 'var(--sidebar-hover)',
-              color: '#ececec',
-              border: '1px solid var(--sidebar-active)',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              border: 'none',
             }}
           >
             <Plus className="w-4 h-4" />
@@ -91,7 +119,7 @@ export default function App() {
             style={{
               background: 'transparent',
               color: 'var(--accent)',
-              border: '1px solid var(--accent)',
+              border: 'none',
             }}
           >
             <Sparkles className="w-4 h-4" />
@@ -99,21 +127,21 @@ export default function App() {
           </button>
 
           <div className="relative mb-3">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: '#808080' }} />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
             <input
               type="text"
               value={batchSearch}
               onChange={(e) => setBatchSearch(e.target.value)}
               placeholder="搜索批次..."
               className="input text-sm pl-8 py-2"
-              style={{ background: 'var(--sidebar-hover)', border: '1px solid var(--sidebar-active)', color: '#ececec' }}
+              style={{ background: 'var(--sidebar-hover)', border: 'none', color: 'var(--text-primary)' }}
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-2">
           <div className="px-3 py-2">
-            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#808080' }}>历史会话</span>
+            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>历史会话</span>
           </div>
           <div className="space-y-0.5">
             {filteredBatches.map((b) => (
@@ -123,12 +151,12 @@ export default function App() {
                 className="w-full text-left px-3 py-2.5 rounded-lg transition text-sm"
                 style={{
                   background: activeBatchId === b.batch_id ? 'var(--sidebar-active)' : 'transparent',
-                  color: activeBatchId === b.batch_id ? '#fff' : '#c0c0c0',
+                  color: activeBatchId === b.batch_id ? 'var(--text-primary)' : 'var(--text-secondary)',
                 }}
               >
                 <div className="truncate font-medium">{b.project_name}</div>
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-xs truncate max-w-[140px]" style={{ color: '#707070' }}>
+                  <span className="text-xs truncate max-w-[140px]" style={{ color: 'var(--text-muted)' }}>
                     {b.batch_id.split('_').slice(-1)}
                   </span>
                   <span
@@ -145,7 +173,7 @@ export default function App() {
                         b.status === 'running' ? '#3b82f6' :
                         b.status === 'stopped' ? '#f59e0b' :
                         b.status === 'failed' ? '#ef4444' :
-                        '#a0a0a0',
+                        '#888',
                     }}
                   >
                     {b.status}
@@ -159,12 +187,20 @@ export default function App() {
 
       {/* Collapsed sidebar toggle */}
       {sidebarCollapsed && (
-        <div className="flex-shrink-0 p-3" style={{ background: 'var(--sidebar-bg)' }}>
+        <div className="flex-shrink-0 p-2 flex flex-col items-center gap-2" style={{ background: 'var(--sidebar-bg)', borderRight: '1px solid var(--border)' }}>
           <button
             onClick={() => setSidebarCollapsed(false)}
-            className="p-2 rounded hover:bg-[var(--sidebar-hover)] transition"
+            className="sidebar-icon-btn"
+            title="展开侧边栏"
           >
-            <PanelLeft className="w-4 h-4" style={{ color: '#a0a0a0' }} />
+            <PanelLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={toggleTheme}
+            className="sidebar-icon-btn"
+            title={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}
+          >
+            {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
           </button>
         </div>
       )}

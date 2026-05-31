@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, CheckCircle, Loader, Circle, AlertCircle, Brain, Wrench, Eye, X } from 'lucide-react';
+import { FileText, CheckCircle, Loader, Circle, AlertCircle, Brain, Wrench, Eye, X, Download, Archive, Folder, Zap } from 'lucide-react';
 import type { ChatMessage as ChatMsg, PipelineNodeStatus, ReactLogEntry } from '../types/chat';
 
 const NODE_ICONS: Record<string, string> = {
@@ -16,17 +16,17 @@ function StatusIcon({ status }: { status: string }) {
     case 'running': return <Loader className="w-4 h-4 animate-spin" style={{ color: 'var(--accent)' }} />;
     case 'failed': return <AlertCircle className="w-4 h-4" style={{ color: '#ef4444' }} />;
     case 'stopped': return <Circle className="w-4 h-4" style={{ color: '#f59e0b' }} />;
-    default: return <Circle className="w-4 h-4" style={{ color: '#6b7280' }} />;
+    default: return <Circle className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />;
   }
 }
 
-function PipelineCard({ nodes }: { nodes: PipelineNodeStatus[] }) {
+function PipelineCard({ nodes, currentActivity }: { nodes: PipelineNodeStatus[]; currentActivity?: string }) {
   return (
     <div className="pipeline-card">
       {nodes.map((node) => (
         <div key={node.node_id} className="pipeline-card-node">
           <span className="text-sm">{NODE_ICONS[node.node_id] || '📋'}</span>
-          <span className="text-sm font-medium" style={{ color: '#e0e0e0' }}>{node.node_id}</span>
+          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{node.node_id}</span>
           <StatusIcon status={node.status} />
           <span className="text-xs" style={{
             color: node.status === 'completed' ? '#059669' :
@@ -41,6 +41,12 @@ function PipelineCard({ nodes }: { nodes: PipelineNodeStatus[] }) {
           </span>
         </div>
       ))}
+      {currentActivity && (
+        <div className="pipeline-current-activity">
+          <span className="pipeline-activity-dot" />
+          <span>{currentActivity}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -51,7 +57,7 @@ function ScoringCard({ scoring }: { scoring: ChatMsg['scoring'] }) {
   return (
     <div className="scoring-card">
       <div className="scoring-card-header">
-        <span className="text-lg font-bold" style={{ color: '#e0e0e0' }}>{s.composite_score}/100</span>
+        <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{s.composite_score}/100</span>
         <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
           {'★'.repeat(Math.min(5, Math.max(1, Math.floor(s.composite_score / 20))))}
           {'☆'.repeat(5 - Math.min(5, Math.max(1, Math.floor(s.composite_score / 20))))}
@@ -99,14 +105,14 @@ function ReActLogCard({ logs }: { logs: ReactLogEntry[] }) {
     <div className="react-log-card">
       <div className="flex items-center gap-2 mb-2">
         <Brain className="w-4 h-4" style={{ color: '#8b5cf6' }} />
-        <span className="text-sm font-semibold" style={{ color: '#e0e0e0' }}>ReAct 思考日志</span>
-        <span className="text-xs" style={{ color: '#6b7280' }}>({logs.length})</span>
+        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>ReAct 思考日志</span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>({logs.length})</span>
       </div>
       <div className="react-log-entries">
         {logs.slice(-40).map((entry, idx) => (
           <div key={idx} className="react-entry">
             <span className="shrink-0 mt-0.5">{entryIcon(entry.type)}</span>
-            {entry.agent && <span className="text-xs mr-1" style={{ color: '#9ca3af' }}>[{entry.agent}]</span>}
+            {entry.agent && <span className="text-xs mr-1" style={{ color: 'var(--text-muted)' }}>[{entry.agent}]</span>}
             <span className="text-xs" style={{ color: entryColor(entry.type) }}>{entry.content}</span>
           </div>
         ))}
@@ -120,18 +126,18 @@ function FilePreviewCard({ content, loading, fileName, onClose }: { content: str
   return (
     <div className="file-preview-card">
       <div className="file-preview-header">
-        <span className="text-xs font-mono truncate" style={{ color: '#9ca3af' }}>{fileName || '预览'}</span>
+        <span className="text-xs font-mono truncate" style={{ color: 'var(--text-muted)' }}>{fileName || '预览'}</span>
         <button onClick={onClose} className="file-chip-remove"><X className="w-3.5 h-3.5" /></button>
       </div>
       <div className="file-preview-body">
         {loading ? (
           <p className="text-center py-4" style={{ color: 'var(--text-muted)' }}>加载中...</p>
         ) : isMarkdown ? (
-          <div className="markdown-body text-sm" style={{ color: '#e0e0e0' }}>
+          <div className="markdown-body text-sm" style={{ color: 'var(--text-primary)' }}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content.substring(0, 30000)}</ReactMarkdown>
           </div>
         ) : (
-          <pre className="text-xs whitespace-pre-wrap break-all font-mono" style={{ color: '#4ade80' }}>
+          <pre className="text-xs whitespace-pre-wrap break-all font-mono" style={{ color: 'var(--code-text)' }}>
             {content.substring(0, 10000)}
             {content.length > 10000 && '\n\n... (内容过长，已截断)'}
           </pre>
@@ -141,33 +147,112 @@ function FilePreviewCard({ content, loading, fileName, onClose }: { content: str
   );
 }
 
-function FileListCard({ files, onFileClick, selectedFile }: { files: string[]; onFileClick: (f: string) => void; selectedFile?: string | null }) {
+function uniqueFiles(files: string[]) {
+  return Array.from(new Set(files)).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+function classifyArtifact(file: string) {
+  const lower = file.toLowerCase();
+  if (lower.includes('test') || lower.includes('测试') || lower.endsWith('.spec.ts') || lower.endsWith('.test.ts')) return '测试';
+  if (lower.endsWith('.py') || lower.endsWith('.ts') || lower.endsWith('.tsx') || lower.endsWith('.js') || lower.endsWith('.html') || lower.endsWith('.css')) return '代码';
+  if (lower.endsWith('.json') || lower.endsWith('.csv') || lower.endsWith('.yaml') || lower.endsWith('.yml')) return '数据';
+  if (lower.includes('评分') || lower.includes('report')) return '报告';
+  return '文档';
+}
+
+function fileTypeCounts(files: string[]) {
+  return files.reduce<Record<string, number>>((acc, file) => {
+    const type = classifyArtifact(file);
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function groupByNode(files: string[]) {
+  return files.reduce<Record<string, string[]>>((acc, file) => {
+    const [node = '产物'] = file.split('/');
+    if (!acc[node]) acc[node] = [];
+    acc[node].push(file);
+    return acc;
+  }, {});
+}
+
+function FileListCard({
+  files,
+  batchId,
+  onFileClick,
+  selectedFile,
+}: {
+  files: string[];
+  batchId: string;
+  onFileClick: (f: string) => void;
+  selectedFile?: string | null;
+}) {
+  const visibleFiles = uniqueFiles(files);
+  const counts = fileTypeCounts(visibleFiles);
+  const groups = groupByNode(visibleFiles);
+  const exportUrl = `/api/batches/${batchId}/export`;
+
   return (
     <div className="file-list-card">
-      <div className="flex items-center gap-2 mb-2">
-        <FileText className="w-4 h-4" style={{ color: 'var(--accent)' }} />
-        <span className="text-sm font-semibold" style={{ color: '#e0e0e0' }}>产出物文件 ({files.length})</span>
+      <div className="artifact-card-header">
+        <div className="flex items-center gap-2">
+          <Archive className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>产出物文件 ({visibleFiles.length})</span>
+        </div>
+        <a href={exportUrl} className="artifact-download-btn" title="下载全部产物 ZIP">
+          <Download className="w-3.5 h-3.5" />
+          下载 ZIP
+        </a>
       </div>
+
+      <div className="artifact-summary">
+        <div className="artifact-summary-main">
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>已生成</span>
+          <strong>{visibleFiles.length}</strong>
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>个文件</span>
+        </div>
+        <div className="artifact-type-grid">
+          {Object.entries(counts).map(([type, count]) => (
+            <span key={type} className="artifact-type-pill">{type} {count}</span>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-1">
-        {files.slice(0, 10).map((f) => (
-          <button
-            key={f}
-            onClick={() => onFileClick(f)}
-            className="file-list-item"
-            style={{
-              background: selectedFile === f ? 'rgba(16,163,127,0.08)' : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              width: '100%',
-              textAlign: 'left',
-            }}
-          >
-            <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
-            <span className="text-xs truncate">{f.split('/').pop()}</span>
-            <Eye className="w-3 h-3 shrink-0 ml-auto" style={{ color: 'var(--text-muted)' }} />
-          </button>
+        {Object.entries(groups).slice(0, 4).map(([node, nodeFiles]) => (
+          <div key={node} className="artifact-node-group">
+            <div className="artifact-node-title">
+              <Folder className="w-3.5 h-3.5" />
+              <span>{node}</span>
+              <span>{nodeFiles.length}</span>
+            </div>
+            {nodeFiles.slice(0, 4).map((f) => (
+              <button
+                key={f}
+                onClick={() => onFileClick(f)}
+                className="file-list-item"
+                style={{
+                  background: selectedFile === f ? 'rgba(16,163,127,0.08)' : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                }}
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+                <span className="text-xs truncate">{f.split('/').pop()}</span>
+                <Eye className="w-3 h-3 shrink-0 ml-auto" style={{ color: 'var(--text-muted)' }} />
+              </button>
+            ))}
+            {nodeFiles.length > 4 && (
+              <span className="artifact-more">还有 {nodeFiles.length - 4} 个文件会打包到 ZIP</span>
+            )}
+          </div>
         ))}
-        {files.length > 10 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>... 及其他 {files.length - 10} 个文件</span>}
+        {Object.keys(groups).length > 4 && (
+          <span className="artifact-more">还有 {Object.keys(groups).length - 4} 个阶段会打包到 ZIP</span>
+        )}
       </div>
     </div>
   );
@@ -178,13 +263,12 @@ export function ChatMessage({ message, batchId, onFilePreview }: { message: Chat
 
   return (
     <div className={`chat-msg-row ${isUser ? 'chat-msg-user' : 'chat-msg-assistant'}`}>
-      {!isUser && <div className="chat-avatar">AI</div>}
+      {!isUser && <div className="chat-avatar"><Zap className="w-4 h-4" /></div>}
       <div className={`chat-bubble ${isUser ? 'chat-bubble-user' : 'chat-bubble-assistant'}`}>
         {message.type === 'file_upload' && message.file && (
-          <div className="file-chip mb-2">
-            <FileText className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-            <span className="text-xs" style={{ color: '#c0c0c0' }}>{message.file.name}</span>
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>({(message.file.size / 1024).toFixed(1)} KB)</span>
+          <div className="msg-file-chip">
+            <FileText className="w-4 h-4 shrink-0" style={{ color: 'var(--accent)' }} />
+            <span className="msg-file-chip-name">{message.file.name}</span>
           </div>
         )}
 
@@ -202,10 +286,12 @@ export function ChatMessage({ message, batchId, onFilePreview }: { message: Chat
           </div>
         )}
 
-        {message.pipelineNodes && message.pipelineNodes.length > 0 && <PipelineCard nodes={message.pipelineNodes} />}
+        {message.pipelineNodes && message.pipelineNodes.length > 0 && (
+          <PipelineCard nodes={message.pipelineNodes} currentActivity={message.currentActivity} />
+        )}
         {message.scoring && <ScoringCard scoring={message.scoring} />}
         {message.type === 'file_list' && message.outputFiles && batchId && (
-          <FileListCard files={message.outputFiles} onFileClick={(f) => onFilePreview?.(f)} selectedFile={message.selectedFile} />
+          <FileListCard files={message.outputFiles} batchId={batchId} onFileClick={(f) => onFilePreview?.(f)} selectedFile={message.selectedFile} />
         )}
         {message.type === 'react_log' && message.reactLogs && message.reactLogs.length > 0 && <ReActLogCard logs={message.reactLogs} />}
         {message.selectedFile && (
