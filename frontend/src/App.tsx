@@ -131,13 +131,39 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2">
+        <div className="flex-1 overflow-y-auto px-2 sidebar-scroll">
           <div className="px-3 py-2">
             <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#808080' }}>历史会话</span>
           </div>
           <div className="space-y-0.5">
-            {filteredBatches.map((b) => (
-              <div key={b.batch_id} className="group relative">
+            {(() => {
+              const now = Date.now();
+              const DAY = 86400000;
+              const WEEK = 7 * DAY;
+              const MONTH = 30 * DAY;
+
+              const groups: { label: string; batches: typeof filteredBatches }[] = [
+                { label: '今天', batches: [] },
+                { label: '本周', batches: [] },
+                { label: '本月', batches: [] },
+                { label: '更早', batches: [] },
+              ];
+
+              filteredBatches.forEach((b) => {
+                const age = now - new Date(b.created_at).getTime();
+                if (age < DAY) groups[0].batches.push(b);
+                else if (age < WEEK) groups[1].batches.push(b);
+                else if (age < MONTH) groups[2].batches.push(b);
+                else groups[3].batches.push(b);
+              });
+
+              return groups.filter(g => g.batches.length > 0).map((group) => (
+                <div key={group.label}>
+                  <div className="px-3 pt-3 pb-1 font-semibold uppercase opacity-70 sidebar-group-header" style={{ letterSpacing: '0.05em' }}>
+                    {group.label}
+                  </div>
+                  {group.batches.map((b) => (
+                  <div key={b.batch_id} className="group relative">
                 <button
                   onClick={() => handleSelectBatch(b.batch_id)}
                   className="w-full text-left px-3 py-2.5 rounded-lg transition text-sm"
@@ -168,9 +194,12 @@ export default function App() {
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
-            ))}
-          </div>
+                  ))}
+                </div>
+              ));
+            })()}
         </div>
+      </div>
       </div>
       )}
 

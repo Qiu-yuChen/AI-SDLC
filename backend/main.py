@@ -10,6 +10,7 @@ from api.routes_prompt import router as prompt_router
 from api.routes_ws import router as ws_router
 from api.routes_stt import router as stt_router
 from api.routes_wechat import router as wechat_router
+from api.routes_feishu import router as feishu_router
 
 app = FastAPI(
     title="AI-SDLC",
@@ -31,6 +32,7 @@ app.include_router(batch_router, prefix="/api")
 app.include_router(prompt_router, prefix="/api")
 app.include_router(stt_router, prefix="/api")
 app.include_router(wechat_router, prefix="/api")
+app.include_router(feishu_router, prefix="/api")
 app.include_router(ws_router, prefix="/ws")
 
 # Static file serving (workspace output preview)
