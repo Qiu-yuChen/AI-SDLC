@@ -192,28 +192,18 @@ export default function App() {
         {/* Top Bar */}
         {activeBatch && view === 'monitor' && (
           <div
-            className="px-6 py-3 border-b flex items-center justify-between"
+            className="px-5 py-2.5 border-b flex items-center justify-between"
             style={{ background: 'var(--main-bg)', borderColor: 'var(--border)' }}
           >
-            <div>
-              <h2 className="font-semibold">
+            <div className="min-w-0">
+              <h2 className="font-semibold text-sm truncate">
                 {activeBatch.project_name}
-                <span className="ml-2 text-xs px-2 py-0.5 rounded-full font-mono" style={{ background: 'var(--main-secondary)', color: 'var(--text-muted)' }}>
-                  {activeBatch.batch_id}
-                </span>
               </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                规格书: {activeBatch.spec_file} · 状态: {activeBatch.status}
-              </p>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => { setActiveBatchId(null); setView('create'); }}
-                className="btn text-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                新建
-              </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs px-2 py-0.5 rounded-full font-mono" style={{ background: 'var(--main-secondary)', color: 'var(--text-muted)' }}>
+                {activeBatch.batch_id.split('_').slice(-1)}
+              </span>
               {(activeBatch.status === 'running' || activeBatch.status === 'created') && (
                 <button
                   onClick={async () => {
@@ -221,29 +211,29 @@ export default function App() {
                     refreshBatch();
                     loadBatches();
                   }}
-                  className="btn text-sm"
-                  style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.4)' }}
+                  className="btn btn-danger text-xs py-1 px-3"
                 >
-                  <Square className="w-3.5 h-3.5" />
+                  <Square className="w-3 h-3" />
                   停止
                 </button>
               )}
               {activeBatch.status === 'completed' && (
-                <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>全部完成</span>
+                <span className="text-xs font-medium" style={{ color: 'var(--accent)' }}>完成</span>
               )}
               {activeBatch.status === 'failed' && (
-                <span className="text-sm font-medium" style={{ color: '#ef4444' }}>执行失败</span>
+                <span className="text-xs font-medium" style={{ color: '#f87171' }}>失败</span>
               )}
               {activeBatch.status === 'running' && (
-                <span className="text-sm font-medium animate-pulse" style={{ color: 'var(--accent)' }}>运行中</span>
+                <span className="text-xs font-medium animate-pulse" style={{ color: 'var(--accent)' }}>执行中</span>
               )}
             </div>
           </div>
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto">
           {view === 'create' && (
+            <div className="max-w-3xl mx-auto px-6 py-12">
             <BatchCreator
               onCreated={handleBatchCreated}
               batches={batches}
@@ -252,10 +242,11 @@ export default function App() {
               importedSpec={''}
               onClearImportedSpec={() => {}}
             />
+            </div>
           )}
 
           {view === 'monitor' && activeBatchId && activeBatch && (
-            <div className="space-y-6">
+            <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
               <PipelineView
                 nodes={activeBatch.nodes}
                 currentNode={activeBatch.current_node}
@@ -273,7 +264,7 @@ export default function App() {
           )}
 
           {view === 'monitor' && !activeBatchId && (
-            <div className="text-center py-20">
+            <div className="text-center py-32">
               <FolderOpen className="w-16 h-16 mx-auto mb-4" style={{ color: '#d1d5db' }} />
               <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>选择一个批次</h3>
               <p style={{ color: 'var(--text-muted)' }}>从左侧列表中选择已创建的批次查看执行详情</p>

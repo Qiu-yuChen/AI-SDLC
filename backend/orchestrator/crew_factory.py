@@ -12,17 +12,37 @@ from tools.quality_tools import validate_design_completeness
 
 # ── LLM Config ──────────────────────────────────────────
 
-def _get_llm():
-    """Get LiteLLM-compatible LLM instance for CrewAI"""
-    import litellm
-    # CrewAI uses LiteLLM under the hood via string model names
-    return settings.primary_model  # e.g. "deepseek/deepseek-chat"
+def _model(agent_model: str) -> str:
+    """返回某个 Agent 的 LLM 模型字符串，若未指定则用 primary_model
+    同时自动配置本地/自定义模型的运行环境"""
+    model = agent_model or settings.primary_model
+    if "qwen" in model:
+        _setup_local_qwen()
+    if "kimi" in model:
+        _setup_kimi()
+    return model
+
+
+def _setup_local_qwen():
+    """为本地 Qwen vLLM 设置环境变量（本地部署无需认证）"""
+    import os
+    os.environ["OPENAI_API_BASE"] = settings.qwen_vllm_api_base
+    if not os.environ.get("OPENAI_API_KEY"):
+        os.environ["OPENAI_API_KEY"] = "not-needed"
+
+
+def _setup_kimi():
+    """为 Kimi Code API 设置自定义 Base URL"""
+    import os
+    if settings.moonshot_api_base:
+        os.environ["MOONSHOT_API_BASE"] = settings.moonshot_api_base
 
 
 # ── Agent Definitions ────────────────────────────────────
 
 def create_design_agent() -> Agent:
     """概要设计 Agent — ReAct: 读规格书 → 分析 → 写设计文档"""
+    model = _model(settings.design_model)
     return Agent(
         role="资深系统架构师",
         goal="根据产品规格说明书，生成结构完整、可直接指导开发的概要设计文档",
@@ -48,7 +68,7 @@ def create_design_agent() -> Agent:
 - 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试
 - 不要传入空的路径或空的内容""",
         tools=[read_file, write_file, validate_design_completeness],
-        llm=_get_llm(),
+        llm=model,
         verbose=settings.react_verbose,
         allow_delegation=False,
         max_iter=settings.react_max_iter,
@@ -58,6 +78,7 @@ def create_design_agent() -> Agent:
 
 def create_codegen_agent() -> Agent:
     """代码生成 Agent — ReAct: 读设计文档 → 写代码 → 语法检查 → 修复"""
+    model = _model(settings.codegen_model)
     return Agent(
         role="资深全栈工程师",
         goal="根据概要设计文档，生成语法正确、结构清晰、可运行的源代码",
@@ -84,7 +105,7 @@ def create_codegen_agent() -> Agent:
 - 确保 JSON 格式正确——字符串中的引号、换行符需要正确转义
 - 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试""",
         tools=[read_file, write_file, list_directory, syntax_check, format_code_file],
-        llm=_get_llm(),
+        llm=model,
         verbose=settings.react_verbose,
         allow_delegation=False,
         max_iter=settings.react_max_iter,
@@ -94,6 +115,7 @@ def create_codegen_agent() -> Agent:
 
 def create_test_agent() -> Agent:
     """单元测试 Agent — ReAct: 读代码 → 写测试 → 运行 → 提升覆盖率"""
+    model = _model(settings.test_model)
     return Agent(
         role="资深测试工程师",
         goal="根据源代码和设计文档，生成覆盖率≥80%的高质量单元测试",
@@ -118,7 +140,7 @@ def create_test_agent() -> Agent:
 - content 参数必须包含完整的文件内容，不能为空字符串
 - 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试""",
         tools=[read_file, write_file, list_directory, syntax_check],
-        llm=_get_llm(),
+        llm=model,
         verbose=settings.react_verbose,
         allow_delegation=False,
         max_iter=settings.react_max_iter,

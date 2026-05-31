@@ -163,10 +163,10 @@ export function ReActLog({ batchId, batchStatus }: Props) {
   const activeEntryCount = entries.filter(e => e.type !== 'system').length;
 
   return (
-    <div className="card overflow-hidden" style={{ background: '#1a1a1a', borderColor: '#252525' }}>
+    <div className="card overflow-hidden" style={{ background: '#1f1f1f', borderColor: '#2a2a2a' }}>
       <div
         className="flex items-center justify-between px-4 py-3 cursor-pointer"
-        style={{ background: '#111111' }}
+        style={{ background: '#171717' }}
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-2">

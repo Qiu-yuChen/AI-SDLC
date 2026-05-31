@@ -90,8 +90,8 @@ async def get_batch(batch_id: str):
 
 @router.post("/batches/{batch_id}/start")
 def start_batch(batch_id: str):
-    """启动自动执行（同步端点，避免 asyncio 事件循环与 CrewAI 冲突）"""
-    import asyncio, concurrent.futures
+    """启动自动执行（同步端点，在新线程中执行避免事件循环冲突）"""
+    import concurrent.futures
 
     sm = StateManager(batch_id)
     status = sm.load()
@@ -100,24 +100,45 @@ def start_batch(batch_id: str):
     if status.get("status") in ("running", "completed"):
         raise HTTPException(400, f"批次当前状态: {status.get('status')}")
 
-    engine = OrchestratorEngine(batch_id)
-    engine.run_auto()
+    def _run():
+        import asyncio
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        engine = OrchestratorEngine(batch_id)
+        engine.run_auto()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_run)
+        future.result(timeout=3600)
+
     return {"batch_id": batch_id, "status": "completed"}
 
 
 @router.post("/batches/{batch_id}/next")
 async def execute_next_node(batch_id: str):
     """手动模式：执行下一个节点"""
-    engine = OrchestratorEngine(batch_id)
-    result = engine.run_manual_step()
-    return result
+    def _run():
+        import asyncio
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        engine = OrchestratorEngine(batch_id)
+        return engine.run_manual_step()
+
+    loop = __import__('asyncio').get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return await loop.run_in_executor(executor, _run)
 
 
 @router.post("/batches/{batch_id}/retry/{node_id}")
 async def retry_node(batch_id: str, node_id: str):
     """增量重试：重新执行指定节点"""
-    engine = OrchestratorEngine(batch_id)
-    result = engine.retry_node(node_id)
+    def _run():
+        import asyncio
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        engine = OrchestratorEngine(batch_id)
+        return engine.retry_node(node_id)
+
+    loop = __import__('asyncio').get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        result = await loop.run_in_executor(executor, _run)
     return result
 
 

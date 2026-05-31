@@ -79,9 +79,9 @@ export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: P
   const hasFailed = NODE_ORDER.some((n) => nodes[n]?.status === 'failed');
 
   return (
-    <div className="card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">执行流水线</h3>
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>执行流水线</h3>
         <div className="flex items-center gap-3">
           {mode === 'manual' && !allCompleted && (
             <button

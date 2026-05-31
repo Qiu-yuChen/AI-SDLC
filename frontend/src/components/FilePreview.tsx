@@ -93,8 +93,8 @@ export function FilePreview({ batchId, nodes }: Props) {
             ))}
           </div>
 
-          <div className="rounded-lg overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid #252525' }}>
-            <div className="flex items-center justify-between px-4 py-2 border-b" style={{ background: '#111111', borderColor: '#252525' }}>
+          <div className="rounded-lg overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid #2a2a2a' }}>
+            <div className="flex items-center justify-between px-4 py-2 border-b" style={{ background: '#141414', borderColor: '#2a2a2a' }}>
               <span className="text-xs font-mono truncate" style={{ color: '#9ca3af' }}>
                 {selectedFile || '选择文件预览'}
               </span>

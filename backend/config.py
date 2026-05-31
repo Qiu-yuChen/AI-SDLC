@@ -18,11 +18,30 @@ TEST_OUTPUT = WORKSPACE_ROOT / "tests"
 class Settings(BaseSettings):
     """Application settings loaded from .env"""
 
-    # LLM
+    # LLM — API Keys（LiteLLM 根据 model 前缀自动匹配环境变量）
     deepseek_api_key: str = ""
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    moonshot_api_key: str = ""   # Kimi = 月之暗面 (Moonshot)
+
+    # LLM — 默认模型（所有 Agent 的兜底，未被 per-agent 覆盖时使用）
     primary_model: str = "deepseek/deepseek-chat"
-    fallback_model: str = "openai/gpt-4o-mini"
+
+    # LLM — 每个 Agent 独立模型（为空则用 primary_model）
+    design_model: str = ""
+    codegen_model: str = ""
+    test_model: str = ""
+
+    # LLM — 提示词优化专用模型（为空则用 primary_model）
+    prompt_model: str = ""
+
+    # LLM — 本地 Qwen vLLM 配置（供 design_model="openai/qwen-input" 时使用）
+    qwen_vllm_api_base: str = "http://127.0.0.1:8001/v1"
+
+    # LLM — Kimi Code API 专用 Base URL（Kimi Code API 与标准 Moonshot 端点不同）
+    moonshot_api_base: str = ""
+
+    # LLM — 公共参数
     llm_temperature: float = 0.3
     llm_max_tokens: int = 8192
     llm_timeout: int = 120

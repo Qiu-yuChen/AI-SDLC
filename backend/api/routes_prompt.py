@@ -172,17 +172,29 @@ SYSTEM_PROMPT_REFINE = """你是一名资深产品经理。根据用户对追问
 def _call_llm(system_prompt: str, user_prompt: str) -> dict:
     """Call LLM via litellm and parse JSON response"""
     import json
+    import os
     import re
     from litellm import completion
 
+    model = settings.prompt_model or settings.primary_model
+    api_base = None
+    api_key = None
+
+    # 如果 prompt model 是本地 Qwen，自动配置 vLLM endpoint
+    if "qwen" in model:
+        api_base = settings.qwen_vllm_api_base
+        api_key = "not-needed"
+
     response = completion(
-        model=settings.primary_model,
+        model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.7,
         max_tokens=min(settings.llm_max_tokens, 8192),
+        api_base=api_base,
+        api_key=api_key,
     )
 
     raw = response.choices[0].message.content or ""
