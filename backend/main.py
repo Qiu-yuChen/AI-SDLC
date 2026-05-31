@@ -4,6 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from llm_patch import apply_llm_patches
+apply_llm_patches()
+
 from config import settings, ROOT_DIR, WORKSPACE_ROOT
 from api.routes_batch import router as batch_router
 from api.routes_prompt import router as prompt_router

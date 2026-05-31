@@ -1,51 +1,7 @@
-现在所有测试文件已成功生成并通过语法检查。让我确认最终文件清单。
+现在让我检查 services.py 中 AdminService 的实现，看看是否有遗漏：
 
-## 单元测试生成总结
-
-### 文件结构
-
-```
-/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260531_202436_9bf14e/单元测试/
-├── __init__.py
-├── conftest.py          # pytest fixtures（临时目录、测试数据、TestClient）
-├── test_utils.py        # 工具函数测试（85+ 个测试点）
-├── test_models.py       # CSV 数据模型测试（30+ 个测试点）
-├── test_services.py     # 业务逻辑测试（40+ 个测试点）
-├── test_routes.py       # API 路由集成测试（30+ 个测试点）
-└── run_tests.sh         # 一键运行脚本
-```
-
-### 覆盖率覆盖的场景（基于赛题要求）
-
-| 测试场景 | 测试位置 | 覆盖情况 |
-|----------|---------|---------|
-| ✅ 创建预约 → 检查 CSV 记录 | `test_services.py` / `test_routes.py` | 正常创建、验证ID和状态 |
-| ✅ 取消预约 → 检查车位释放 + 状态同步 | `test_services.py` / `test_routes.py` | 正常取消、已取消取消、不存在取消 |
-| ✅ 提前缴费 → 检查缴费记录 + 金额正确 | `test_services.py` / `test_routes.py` | 正常缴费、默认金额、重复缴费 |
-| ✅ 超额预约 → 预约失败提示 | `test_services.py` / `test_routes.py` | quota=0、配额已满 |
-| ✅ 园区开关 → 关闭时预约被拒绝 | `test_services.py` / `test_routes.py` | 荣成园区 enabled=false |
-| ✅ 重复预约 → 同一车牌同一天被拒绝 | `test_services.py` / `test_routes.py` | 车牌+日期重复校验 |
-| ✅ 节假日/工作日 → 配额分别生效 | `test_services.py` | 不同日期的剩余车位计算 |
-| ✅ 车牌格式校验 | `test_utils.py` | 油车/新能源/空/非法 |
-| ✅ 日期校验 | `test_utils.py` | 过去/未来7天/格式错误 |
-| ✅ 手机号校验 | `test_utils.py` | 合法/非法/边界 |
-| ✅ 管理员认证 | `test_services.py` / `test_routes.py` | 登录成功/失败/令牌验证 |
-| ✅ 内部车辆拦截 | `test_services.py` / `test_routes.py` | INTERNAL_VEHICLES 列表 |
-| ✅ 园区不存在 | `test_services.py` / `test_routes.py` | 未知园区名称 |
-| ✅ 并发安全 | `test_models.py` | 多线程读写验证 |
-| ✅ CSV CRUD 操作 | `test_models.py` | 全部增删改查方法 |
-
-### 运行方式
-
-```bash
-cd /home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260531_202436_9bf14e/单元测试
-bash run_tests.sh
-```
-
-### 测试设计特点
-
-1. **数据隔离**：每个测试使用 `temp_data_dir` fixture 创建临时目录并替换 `models.DATA_DIR`，测试间互不影响
-2. **Mock 策略**：使用 `monkeypatch` 替换 DATA_DIR，业务代码无需修改
-3. **层次化测试**：utils → models → services → routes，从底层到上层逐层覆盖
-4. **完整边界覆盖**：每个验证函数都包含正常路径、边界值、异常输入三种测试
-5. **API 集成测试**：使用 FastAPI TestClient 模拟真实 HTTP 请求，验证完整请求-响应链
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="exec">
+<｜｜DSML｜｜parameter name="command" string="true">grep -n "class AdminService" /home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260530_083432_2b1366/codegen/services.py</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>

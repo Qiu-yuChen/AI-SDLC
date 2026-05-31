@@ -25,6 +25,7 @@ export interface BatchStatus {
   created_at: string;
   updated_at: string;
   nodes: Record<string, NodeInfo>;
+  has_poster?: boolean;
 }
 
 export interface BatchListItem {
@@ -70,6 +71,7 @@ export interface WsEvent {
   message?: string;
   path?: string;
   timestamp?: string;
+  retry?: boolean;
 }
 
 export interface ScoringReport {

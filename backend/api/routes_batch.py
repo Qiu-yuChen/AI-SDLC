@@ -96,6 +96,8 @@ async def get_batch(batch_id: str):
     status = sm.load()
     if not status:
         raise HTTPException(404, "批次不存在")
+    poster_path = DOCS_OUTPUT / batch_id / "交付海报" / "poster.png"
+    status["has_poster"] = poster_path.exists()
     return status
 
 

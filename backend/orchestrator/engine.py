@@ -134,7 +134,7 @@ class OrchestratorEngine:
         return {"status": "completed", "rolled_back_from": node_id}
 
     def _execute_node(self, node_id: str, spec_file: str):
-        """Execute a single agent node with state tracking and WS broadcast."""
+        """Execute a single agent node with state tracking, WS broadcast, and auto-retry."""
         node_name = NODE_NAMES[node_id]
         self._ensure_not_stopped()
 
@@ -152,110 +152,7 @@ class OrchestratorEngine:
         start = datetime.now(timezone.utc)
 
         try:
-            if node_id == "质量评分":
-                self._emit_react_step(node_id, node_name, {
-                    "action": "run_quality_scoring",
-                    "observation": "正在读取设计、代码和测试产物并计算质量评分。",
-                })
-                self._ensure_not_stopped()
-
-                import threading as _th
-                _scoring_exc = [None]
-                def _safe_scoring():
-                    try: self._run_scoring()
-                    except Exception as e: _scoring_exc[0] = e
-                _scoring_thread = _th.Thread(target=_safe_scoring, daemon=True)
-                _scoring_thread.start()
-                _scoring_thread.join(timeout=90)
-                if _scoring_thread.is_alive():
-                    self.sm.append_log({"event": "scoring_timeout", "message": "评分超时(90s)，已跳过"})
-                    raise TimeoutError("评分超时(90s)")
-                if _scoring_exc[0]:
-                    raise _scoring_exc[0]
-                self._ensure_not_stopped()
-
-                from config import DOCS_OUTPUT
-                node_dir = DOCS_OUTPUT / self.batch_id / node_id
-                output_files = []
-                if node_dir.exists():
-                    for f in node_dir.rglob("*"):
-                        if f.is_file():
-                            output_files.append(str(f.relative_to(DOCS_OUTPUT / self.batch_id)))
-
-                self.sm.update_node(node_id, "completed", output_files=output_files)
-                self.sm.append_log({
-                    "event": "node_completed",
-                    "node": node_id,
-                    "name": node_name,
-                    "output_files": output_files,
-                })
-                self._broadcast("node_completed", {
-                    "node_id": node_id,
-                    "name": node_name,
-                    "output_files": output_files,
-                })
-                return
-
-            builder = CREW_BUILDERS[node_id]
-            if node_id == "概要设计":
-                crew = builder(self.batch_id, spec_file, self._emit_react_step)
-            else:
-                crew = builder(self.batch_id, self._emit_react_step)
-
-            self._ensure_not_stopped()
-            self._emit_react_step(node_id, node_name, {
-                "action": "crew.kickoff",
-                "observation": "已提交给模型执行，等待模型规划、调用工具并返回阶段结果。",
-            })
-            crew_output = crew.kickoff(inputs=_SafeDict(batch_id=self.batch_id))
-            self._ensure_not_stopped()
-
-            _ = str(crew_output) if crew_output else ""
-            duration = (datetime.now(timezone.utc) - start).total_seconds()
-
-            # 代码生成阶段：审查回环 (生成→审查→修复)
-            if node_id == "代码生成":
-                try:
-                    from orchestrator.code_review_loop import run_code_review_loop
-                    review_score = run_code_review_loop(self.batch_id)
-                    if review_score:
-                        self.sm.append_log({"event": "code_review_done", "score": review_score})
-                except Exception:
-                    pass
-
-            from config import DOCS_OUTPUT
-            node_dir = DOCS_OUTPUT / self.batch_id / node_id
-            output_files = []
-            if node_dir.exists():
-                for f in node_dir.rglob("*"):
-                    if f.is_file() and "__pycache__" not in str(f):
-                        output_files.append(str(f.relative_to(DOCS_OUTPUT / self.batch_id)))
-
-            self.sm.update_node(node_id, "completed", output_files=output_files)
-            self.sm.append_log({
-                "event": "node_completed",
-                "node": node_id,
-                "name": node_name,
-                "duration_seconds": duration,
-                "output_files": output_files,
-            })
-            self._broadcast("node_completed", {
-                "node_id": node_id,
-                "name": node_name,
-                "duration_seconds": duration,
-                "output_files": output_files,
-            })
-
-            # 飞书进度回推
-            try:
-                from api.routes_feishu import push_feishu_progress
-                push_feishu_progress(self.batch_id, f"{node_name} 完成 ({duration:.0f}s)")
-            except Exception:
-                pass
-
-            # 后台启动质量审查 + 技能存储（不阻塞流水线）
-            threading.Thread(target=self._run_quality_review, args=(node_id, node_name), daemon=True).start()
-
+            self._do_execute_node(node_id, node_name, spec_file, start)
         except StopRequested as exc:
             self.sm.update_node(node_id, "stopped", error=str(exc))
             self.sm.append_log({
@@ -274,7 +171,6 @@ class OrchestratorEngine:
             error_msg = f"{type(exc).__name__}: {str(exc)}"
             trace = traceback.format_exc()
 
-            self.sm.update_node(node_id, "failed", error=error_msg)
             self.sm.append_log({
                 "event": "node_failed",
                 "node": node_id,
@@ -292,7 +188,176 @@ class OrchestratorEngine:
                 save_failure_lesson(self.batch_id, node_id, error_msg)
             except Exception:
                 pass
+
+            dur = (datetime.now(timezone.utc) - start).total_seconds()
+            if dur < 10 and node_id in ("代码生成", "单元测试"):
+                self.sm.append_log({
+                    "event": "auto_retry",
+                    "node": node_id,
+                    "reason": f"节点异常退出过快({dur:.1f}s)，自动重试一次",
+                })
+                self._broadcast("react_step", {
+                    "node_id": node_id, "name": node_name,
+                    "step": {"thought": f"⚠️ 节点异常退出({dur:.1f}s)，自动重试一次..."},
+                })
+                try:
+                    self._ensure_not_stopped()
+                    self._do_execute_node(node_id, node_name, spec_file, start)
+                    return
+                except StopRequested:
+                    raise
+                except Exception as retry_exc:
+                    retry_msg = f"{type(retry_exc).__name__}: {str(retry_exc)}"
+                    self.sm.update_node(node_id, "failed", error=retry_msg)
+                    self.sm.append_log({
+                        "event": "auto_retry_failed",
+                        "node": node_id,
+                        "error": retry_msg,
+                    })
+                    self._broadcast("node_failed", {
+                        "node_id": node_id,
+                        "name": node_name,
+                        "error": retry_msg,
+                    })
+                    return
+
+            self.sm.update_node(node_id, "failed", error=error_msg)
             # 不重新抛出 — 让流水线继续执行后续节点
+
+    def _do_execute_node(self, node_id: str, node_name: str, spec_file: str, start: datetime):
+        """Core node execution logic. Raises on failure (caller handles state/retry)."""
+        self._ensure_not_stopped()
+
+        if node_id == "质量评分":
+            self._emit_react_step(node_id, node_name, {
+                "action": "run_quality_scoring",
+                "observation": "正在读取设计、代码和测试产物并计算质量评分。",
+            })
+            self._ensure_not_stopped()
+
+            import threading as _th
+            _scoring_exc = [None]
+            def _safe_scoring():
+                try: self._run_scoring()
+                except Exception as e: _scoring_exc[0] = e
+            _scoring_thread = _th.Thread(target=_safe_scoring, daemon=True)
+            _scoring_thread.start()
+            _scoring_thread.join(timeout=90)
+            if _scoring_thread.is_alive():
+                self.sm.append_log({"event": "scoring_timeout", "message": "评分超时(90s)，已跳过"})
+                raise TimeoutError("评分超时(90s)")
+            if _scoring_exc[0]:
+                raise _scoring_exc[0]
+            self._ensure_not_stopped()
+
+            from config import DOCS_OUTPUT
+            node_dir = DOCS_OUTPUT / self.batch_id / node_id
+            output_files = []
+            if node_dir.exists():
+                for f in node_dir.rglob("*"):
+                    if f.is_file():
+                        output_files.append(str(f.relative_to(DOCS_OUTPUT / self.batch_id)))
+
+            self.sm.update_node(node_id, "completed", output_files=output_files)
+            self.sm.append_log({
+                "event": "node_completed",
+                "node": node_id,
+                "name": node_name,
+                "output_files": output_files,
+            })
+            self._broadcast("node_completed", {
+                "node_id": node_id,
+                "name": node_name,
+                "output_files": output_files,
+            })
+            return
+
+        builder = CREW_BUILDERS[node_id]
+        if node_id == "概要设计":
+            crew = builder(self.batch_id, spec_file, self._emit_react_step)
+        else:
+            crew = builder(self.batch_id, self._emit_react_step)
+
+        self._ensure_not_stopped()
+        self._emit_react_step(node_id, node_name, {
+            "action": "crew.kickoff",
+            "observation": "已提交给模型执行，等待模型规划、调用工具并返回阶段结果。",
+        })
+        crew_output = crew.kickoff(inputs=_SafeDict(batch_id=self.batch_id))
+        self._ensure_not_stopped()
+
+        output_text = str(crew_output) if crew_output else ""
+        duration = (datetime.now(timezone.utc) - start).total_seconds()
+
+        self.sm.append_log({
+            "event": "crew_kickoff_done",
+            "node": node_id,
+            "duration_seconds": duration,
+            "output_length": len(output_text),
+            "output_preview": output_text[:200] if output_text else "(empty)",
+        })
+
+        if not output_text or duration < 5:
+            self.sm.append_log({
+                "event": "crew_kickoff_suspicious",
+                "node": node_id,
+                "duration_seconds": duration,
+                "output_length": len(output_text),
+                "message": f"Agent returned too fast ({duration:.1f}s) or empty output, treating as failure",
+            })
+            raise RuntimeError(
+                f"Agent 返回异常：耗时 {duration:.1f}s，输出长度 {len(output_text)}。"
+                f"可能原因：LLM API 错误或思考模式未关闭。"
+            )
+
+        # 代码生成阶段：审查回环 (生成→审查→修复)
+        if node_id == "代码生成":
+            try:
+                from orchestrator.code_review_loop import run_code_review_loop
+                review_score = run_code_review_loop(self.batch_id)
+                if review_score:
+                    self.sm.append_log({"event": "code_review_done", "score": review_score})
+            except Exception:
+                pass
+
+        from config import DOCS_OUTPUT
+        node_dir = DOCS_OUTPUT / self.batch_id / node_id
+        output_files = []
+        if node_dir.exists():
+            for f in node_dir.rglob("*"):
+                if f.is_file() and "__pycache__" not in str(f):
+                    output_files.append(str(f.relative_to(DOCS_OUTPUT / self.batch_id)))
+
+        if node_id in ("代码生成", "单元测试") and not output_files:
+            raise RuntimeError(
+                f"{node_name} 完成但未生成任何文件。"
+                f"Agent 输出长度={len(output_text)}，可能未调用 write_file 工具。"
+            )
+
+        self.sm.update_node(node_id, "completed", output_files=output_files)
+        self.sm.append_log({
+            "event": "node_completed",
+            "node": node_id,
+            "name": node_name,
+            "duration_seconds": duration,
+            "output_files": output_files,
+        })
+        self._broadcast("node_completed", {
+            "node_id": node_id,
+            "name": node_name,
+            "duration_seconds": duration,
+            "output_files": output_files,
+        })
+
+        # 飞书进度回推
+        try:
+            from api.routes_feishu import push_feishu_progress
+            push_feishu_progress(self.batch_id, f"{node_name} 完成 ({duration:.0f}s)")
+        except Exception:
+            pass
+
+        # 后台启动质量审查 + 技能存储（不阻塞流水线）
+        threading.Thread(target=self._run_quality_review, args=(node_id, node_name), daemon=True).start()
 
     def _run_scoring(self):
         """Stage 4: quality scoring without LLM calls."""

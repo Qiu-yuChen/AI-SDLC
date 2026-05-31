@@ -384,6 +384,15 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
               }, 'scoring_report');
             }
           } catch { /* no scoring report */ }
+
+          if (batch.has_poster && !cancelled && mountedRef.current) {
+            addMsg({
+              id: nextId(), role: 'assistant', type: 'text',
+              content: '',
+              posterUrl: '交付海报/poster.png',
+              timestamp: now(),
+            });
+          }
         }
       } catch { /* batch not found */ }
     }
@@ -407,15 +416,17 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
         setBatchStatus(batch.status);
         upsertPipelineMessage(nodes);
 
-        const { logs: reactLogs, lastActivity } = await loadReactLogs(bid);
-        if (!cancelled && mountedRef.current) {
-          if (reactLogs.length) {
-            replaceReactLogMessage(reactLogs);
-          }
-          if (batch.status === 'running' && lastActivity) {
-            setMessages((prev) => prev.map((m) =>
-              m.type === 'pipeline_status' ? { ...m, currentActivity: lastActivity } : m
-            ));
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          const { logs: reactLogs, lastActivity } = await loadReactLogs(bid);
+          if (!cancelled && mountedRef.current) {
+            if (reactLogs.length) {
+              replaceReactLogMessage(reactLogs);
+            }
+            if (batch.status === 'running' && lastActivity) {
+              setMessages((prev) => prev.map((m) =>
+                m.type === 'pipeline_status' ? { ...m, currentActivity: lastActivity } : m
+              ));
+            }
           }
         }
       } catch { /* keep the live websocket state */ }
@@ -488,6 +499,9 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
 
         if (event.type === 'node_start') {
           setBatchStatus('running');
+          if (event.retry) {
+            replaceReactLogMessage([]);
+          }
           addMsg({ id: nextId(), role: 'assistant', type: 'text', content: `**${event.name || event.node_id || ''}** 已开始执行...`, timestamp: now() });
         }
         if (event.type === 'node_completed') {
@@ -508,6 +522,7 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
 
         if (event.type === 'rollback') {
           setBatchStatus('running');
+          replaceReactLogMessage([]);
           addMsg({
             id: nextId(), role: 'assistant', type: 'text',
             content: `⏪ 回退到「${event.node_id}」，从该阶段重新执行`,
