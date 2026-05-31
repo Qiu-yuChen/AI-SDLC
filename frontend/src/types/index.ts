@@ -27,6 +27,15 @@ export interface BatchStatus {
   nodes: Record<string, NodeInfo>;
 }
 
+export interface ScoringReport {
+  composite_score: number;
+  stars: string;
+  design_score: { total_score: number; max_score: number };
+  code_score: { total_score: number; max_score: number };
+  test_score: { total_score: number; max_score: number };
+  repozero_score: { total_score: number; max_score: number };
+}
+
 export interface BatchListItem {
   batch_id: string;
   project_name: string;

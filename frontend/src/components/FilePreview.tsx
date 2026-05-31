@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { FileCode, FileText, Folder, ExternalLink } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { NodeInfo } from '../types';
 
 interface Props {
@@ -113,12 +115,16 @@ export function FilePreview({ batchId, nodes }: Props) {
               {loading ? (
                 <p className="text-center py-8" style={{ color: 'var(--text-muted)' }}>加载中...</p>
               ) : selectedFile ? (
-                <pre className="text-sm whitespace-pre-wrap break-all font-mono" style={{
-                  color: isMarkdown ? '#e0e0e0' : '#4ade80',
-                }}>
-                  {fileContent.substring(0, 10000)}
-                  {fileContent.length > 10000 && '\n\n... (内容过长，已截断)'}
-                </pre>
+                isMarkdown ? (
+                  <div className="prose prose-invert max-w-none text-sm markdown-body" style={{ color: '#e0e0e0' }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{fileContent.substring(0, 30000)}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <pre className="text-sm whitespace-pre-wrap break-all font-mono" style={{ color: '#4ade80' }}>
+                    {fileContent.substring(0, 10000)}
+                    {fileContent.length > 10000 && '\n\n... (内容过长，已截断)'}
+                  </pre>
+                )
               ) : (
                 <p className="text-center py-8" style={{ color: 'var(--text-muted)' }}>
                   选择左侧文件进行预览

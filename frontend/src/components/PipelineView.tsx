@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle, Loader, Circle, AlertCircle, Clock, RotateCcw, ChevronRight, Play } from 'lucide-react';
 import { retryNode, executeNext } from '../api/client';
-import type { NodeInfo, NodeStatus } from '../types';
+import type { NodeInfo, NodeStatus, ScoringReport } from '../types';
 
 interface Props {
   nodes: Record<string, NodeInfo>;
@@ -9,6 +9,7 @@ interface Props {
   batchId: string;
   mode: 'auto' | 'manual';
   onRefresh: () => void;
+  scoringReport?: ScoringReport | null;
 }
 
 const NODE_ORDER = ['概要设计', '代码生成', '单元测试'];
@@ -31,23 +32,24 @@ function StatusIcon({ status }: { status: NodeStatus }) {
   }
 }
 
-function QualityBar({ score }: { score: number | null }) {
+function ScoringBar({ score, label }: { score: number | null; label: string }) {
   if (score === null || score === undefined) return null;
-  const level = score >= 80 ? '#10a37f' : score >= 60 ? '#f59e0b' : '#ef4444';
+  const pct = Math.min(score, 100);
+  const level = pct >= 80 ? '#10a37f' : pct >= 60 ? '#f59e0b' : '#ef4444';
   return (
     <div className="mt-2 w-full">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>质量</span>
-        <span className="text-xs font-semibold" style={{ color: level }}>{Math.round(score)}/100</span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{label}</span>
+        <span className="text-xs font-semibold" style={{ color: level }}>{Math.round(pct)}/100</span>
       </div>
       <div className="quality-bar">
-        <div className="quality-bar-fill" style={{ width: `${Math.min(score, 100)}%`, background: `linear-gradient(90deg, ${level}, ${level}88)` }} />
+        <div className="quality-bar-fill" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${level}, ${level}88)` }} />
       </div>
     </div>
   );
 }
 
-export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: Props) {
+export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh, scoringReport }: Props) {
   const [retrying, setRetrying] = useState<string | null>(null);
   const [stepping, setStepping] = useState(false);
 
@@ -78,10 +80,39 @@ export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: P
   const allCompleted = NODE_ORDER.every((n) => nodes[n]?.status === 'completed');
   const hasFailed = NODE_ORDER.some((n) => nodes[n]?.status === 'failed');
 
+  function getNodeScore(nodeId: string): number | null {
+    if (!scoringReport) return null;
+    switch (nodeId) {
+      case '概要设计':
+        return scoringReport.design_score?.total_score ?? null;
+      case '代码生成':
+        return scoringReport.code_score?.total_score ?? null;
+      case '单元测试': {
+        const t = scoringReport.test_score?.total_score ?? 0;
+        const r = scoringReport.repozero_score?.total_score ?? 0;
+        return Math.round(t * 0.375 + r * 0.625);
+      }
+      default:
+        return null;
+    }
+  }
+
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">执行流水线</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold">执行流水线</h3>
+          {scoringReport && (() => {
+            const score = Math.round(scoringReport.composite_score);
+            const filled = Math.min(5, Math.max(1, Math.floor(score / 20)));
+            const stars = '★'.repeat(filled) + '☆'.repeat(5 - filled);
+            return (
+              <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                {stars} 综合 {score}/100
+              </span>
+            );
+          })()}
+        </div>
         <div className="flex items-center gap-3">
           {mode === 'manual' && !allCompleted && (
             <button
@@ -141,7 +172,7 @@ export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: P
                    '等待中'}
                 </span>
 
-                <QualityBar score={node?.quality_score ?? null} />
+                <ScoringBar score={getNodeScore(nodeId)} label="质量" />
 
                 {isCompleted && node?.output_files?.length > 0 && (
                   <span className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>

@@ -197,3 +197,416 @@ body {
 .tab-content {
   transition: opacity 0.15s ease;
 }
+
+/* ── Chat UI ────────────────────────────────────────── */
+
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--main-bg);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.chat-empty-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 163, 127, 0.1);
+  margin-bottom: 8px;
+}
+
+/* Message rows */
+.chat-msg-row {
+  display: flex;
+  gap: 10px;
+  max-width: 800px;
+  width: 100%;
+  animation: fadeIn 0.25s ease-out;
+}
+.chat-msg-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+.chat-msg-assistant {
+  align-self: flex-start;
+}
+
+/* Avatar */
+.chat-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Bubbles */
+.chat-bubble {
+  max-width: 680px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.chat-bubble-user {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble-assistant {
+  background: var(--main-secondary);
+  color: #e0e0e0;
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+.chat-bubble-assistant p { margin: 0.4em 0; }
+
+/* Input bar */
+.chat-input-bar {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--main-bg);
+}
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.chat-text-input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--main-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.chat-text-input:focus {
+  border-color: var(--accent);
+}
+.chat-text-input::placeholder {
+  color: var(--text-muted);
+}
+.chat-attach-btn {
+  padding: 8px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.chat-attach-btn:hover {
+  color: var(--accent);
+}
+.chat-send-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition);
+}
+.chat-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.chat-send-btn:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+/* File chip */
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(16, 163, 127, 0.1);
+  border: 1px solid rgba(16, 163, 127, 0.2);
+}
+.file-chip-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+}
+.file-chip-remove:hover {
+  color: #ef4444;
+}
+
+/* Pipeline card inside bubble */
+.pipeline-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.pipeline-card-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+/* Scoring card inside bubble */
+.scoring-card {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.scoring-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.scoring-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.scoring-card-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* File list card inside bubble */
+.file-list-card {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.file-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: #c0c0c0;
+  text-decoration: none;
+  transition: background var(--transition);
+}
+.file-list-item:hover {
+  background: rgba(16, 163, 127, 0.08);
+  color: var(--accent);
+}
+
+/* Markdown preview — dark theme override */
+.markdown-body {
+  line-height: 1.7;
+}
+.markdown-body h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 1em 0 0.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #3d3d5c;
+  color: #e0e0e0;
+}
+.markdown-body h2 {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid #2d2d3d;
+  color: #e0e0e0;
+}
+.markdown-body h3 {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+  color: #d0d0d0;
+}
+.markdown-body h4 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.5em 0 0.2em;
+  color: #c0c0c0;
+}
+.markdown-body p {
+  margin: 0.5em 0;
+  color: #c8c8d0;
+}
+.markdown-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+.markdown-body strong {
+  color: #e8e8e8;
+  font-weight: 600;
+}
+.markdown-body em {
+  color: #b0b0c0;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+  color: #c8c8d0;
+}
+.markdown-body li {
+  margin: 0.2em 0;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.4em 1em;
+  margin: 0.6em 0;
+  background: rgba(16, 163, 127, 0.06);
+  border-radius: 0 6px 6px 0;
+  color: #a0a0b0;
+}
+.markdown-body code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #e0af68;
+}
+.markdown-body pre {
+  background: #16162a !important;
+  border: 1px solid #2d2d3d;
+  border-radius: 8px;
+  padding: 1em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none !important;
+  padding: 0;
+  font-size: 0.85em;
+  color: #9ece6a;
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.markdown-body thead th {
+  background: #252540;
+  color: #e0e0e0;
+  font-weight: 600;
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid #3d3d5c;
+}
+.markdown-body tbody td {
+  padding: 6px 12px;
+  border: 1px solid #2d2d3d;
+  color: #c8c8d0;
+}
+.markdown-body tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+.markdown-body tbody tr:hover {
+  background: rgba(16, 163, 127, 0.06);
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #3d3d5c;
+  margin: 1em 0;
+}
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 0.5em 0;
+}
+
+/* ReAct log card inside bubble */
+.react-log-card {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid #2d2d3d;
+}
+.react-log-entries {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.react-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* File preview card inside bubble */
+.file-preview-card {
+  margin-top: 10px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e1e2e;
+  border: 1px solid #2d2d3d;
+}
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #16162a;
+  border-bottom: 1px solid #2d2d3d;
+}
+.file-preview-body {
+  padding: 12px;
+  max-height: 400px;
+  overflow: auto;
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Sparkles, Copy, Check, Play, RefreshCw, X, Edit3, Eye } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatQA {
   question: string;
@@ -213,14 +214,16 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
               </div>
               {showPreview ? (
                 <div
-                  className="p-4 rounded-lg text-sm leading-relaxed prose prose-sm max-w-none overflow-y-auto"
+                  className="markdown-body overflow-y-auto"
                   style={{
-                    background: 'var(--main-secondary)',
-                    border: '1px solid var(--border)',
+                    background: '#1e1e2e',
+                    border: '1px solid #2d2d3d',
+                    borderRadius: '8px',
+                    padding: '16px',
                     maxHeight: '300px',
                   }}
                 >
-                  <ReactMarkdown>{spec}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{spec}</ReactMarkdown>
                 </div>
               ) : (
                 <textarea

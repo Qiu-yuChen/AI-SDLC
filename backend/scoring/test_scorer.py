@@ -53,7 +53,7 @@ class TestScorer:
         total = 0
         for f in self.test_dir.rglob("test_*.py"):
             try:
-                tree = ast.parse(f.read_text())
+                tree = ast.parse(f.read_text(encoding="utf-8"))
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
                         total += 1
@@ -79,7 +79,7 @@ class TestScorer:
         total_asserts = 0
         for f in self.test_dir.rglob("test_*.py"):
             try:
-                tree = ast.parse(f.read_text())
+                tree = ast.parse(f.read_text(encoding="utf-8"))
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Assert):
                         total_asserts += 1
@@ -104,7 +104,7 @@ class TestScorer:
         if not conftest.exists():
             return 3.0, "未找到 conftest.py"
         try:
-            tree = ast.parse(conftest.read_text())
+            tree = ast.parse(conftest.read_text(encoding="utf-8"))
             fixtures = 0
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
@@ -128,7 +128,7 @@ class TestScorer:
         total_lines = 0
         for f in self.test_dir.rglob("test_*.py"):
             try:
-                total_lines += len(f.read_text().splitlines())
+                total_lines += len(f.read_text(encoding="utf-8").splitlines())
             except Exception:
                 pass
 

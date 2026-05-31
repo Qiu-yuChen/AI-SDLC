@@ -1,6 +1,6 @@
 /** API client — REST + WebSocket */
 
-import type { BatchStatus, BatchListItem, WsEvent } from '../types';
+import type { BatchStatus, BatchListItem, WsEvent, ScoringReport } from '../types';
 
 const BASE = '/api';
 
@@ -48,6 +48,12 @@ export async function executeNext(batchId: string): Promise<void> {
 export async function retryNode(batchId: string, nodeId: string): Promise<void> {
   const res = await fetch(`${BASE}/batches/${batchId}/retry/${nodeId}`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
+}
+
+export async function fetchScoringReport(batchId: string): Promise<ScoringReport> {
+  const res = await fetch(`/workspace/docs/已生成/${batchId}/质量评分/scoring_report.json`);
+  if (!res.ok) throw new Error('Report not found');
+  return res.json();
 }
 
 // ── WebSocket ────────────────────────────────────────

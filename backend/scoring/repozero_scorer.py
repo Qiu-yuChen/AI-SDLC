@@ -77,7 +77,7 @@ class RepoZeroScorer:
         pairs = []
         for test_file in self.test_dir.rglob("test_*.py"):
             try:
-                tree = ast.parse(test_file.read_text())
+                tree = ast.parse(test_file.read_text(encoding="utf-8"))
             except Exception:
                 continue
             for node in ast.walk(tree):
@@ -513,7 +513,7 @@ class RepoZeroScorer:
 
         for py_file in py_files:
             try:
-                content = py_file.read_text()
+                content = py_file.read_text(encoding="utf-8")
             except Exception:
                 continue
 

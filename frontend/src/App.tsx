@@ -1,36 +1,23 @@
 import { useState, useEffect } from 'react';
-import { Sparkles, Play, StepForward, RefreshCw, FolderOpen, Plus, Search, PanelLeftClose, PanelLeft, Zap } from 'lucide-react';
-import { BatchCreator } from './components/BatchCreator';
-import { PipelineView } from './components/PipelineView';
-import { ReActLog } from './components/ReActLog';
-import { FilePreview } from './components/FilePreview';
+import { Plus, Search, PanelLeftClose, PanelLeft, Zap, Sparkles } from 'lucide-react';
+import { ChatView } from './components/ChatView';
 import { PromptOptimizer } from './components/PromptOptimizer';
-import { listBatches, getBatch, createBatch, uploadSpec, startBatch } from './api/client';
-import type { BatchListItem, BatchStatus } from './types';
-
-type View = 'create' | 'monitor';
+import { listBatches } from './api/client';
+import type { BatchListItem } from './types';
 
 export default function App() {
-  const [view, setView] = useState<View>('create');
   const [batches, setBatches] = useState<BatchListItem[]>([]);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
-  const [activeBatch, setActiveBatch] = useState<BatchStatus | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [batchSearch, setBatchSearch] = useState('');
-  const [showPromptOptimizer, setShowPromptOptimizer] = useState(false);
+  const [showOptimizer, setShowOptimizer] = useState(false);
+  const [importSpec, setImportSpec] = useState<string | null>(null);
 
   useEffect(() => {
     loadBatches();
     const interval = setInterval(loadBatches, 5000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (!activeBatchId) return;
-    refreshBatch();
-    const interval = setInterval(refreshBatch, 2000);
-    return () => clearInterval(interval);
-  }, [activeBatchId]);
 
   async function loadBatches() {
     try {
@@ -39,42 +26,23 @@ export default function App() {
     } catch { /* backend not ready */ }
   }
 
-  async function refreshBatch() {
-    if (!activeBatchId) return;
-    try {
-      const batch = await getBatch(activeBatchId);
-      setActiveBatch(batch);
-    } catch { /* ignore */ }
+  function handleSelectBatch(batchId: string) {
+    setActiveBatchId(batchId);
   }
 
   function handleBatchCreated(batchId: string) {
     setActiveBatchId(batchId);
-    setView('monitor');
     loadBatches();
   }
 
-  function handleSelectBatch(batchId: string) {
-    setActiveBatchId(batchId);
-    setView('monitor');
+  function handleNewChat() {
+    setActiveBatchId(null);
+    setImportSpec(null);
   }
 
-  const [importingSpec, setImportingSpec] = useState(false);
-
-  async function handleImportSpec(spec: string) {
-    setShowPromptOptimizer(false);
-    setImportingSpec(true);
-    try {
-      const blob = new Blob([spec], { type: 'text/markdown' });
-      const textFile = new File([blob], `ai_spec_${Date.now()}.md`, { type: 'text/markdown' });
-      const uploadResult = await uploadSpec(textFile);
-      const batch = await createBatch(uploadResult.filename, 'AI 生成规格书');
-      await startBatch(batch.batch_id);
-      handleBatchCreated(batch.batch_id);
-    } catch (e: any) {
-      console.error('Import failed:', e);
-    } finally {
-      setImportingSpec(false);
-    }
+  function handleImportSpec(spec: string) {
+    setImportSpec(spec);
+    setShowOptimizer(false);
   }
 
   const filteredBatches = batches.filter((b) => {
@@ -106,8 +74,8 @@ export default function App() {
 
         <div className="p-3">
           <button
-            onClick={() => { setView('create'); setActiveBatchId(null); }}
-            className="btn w-full mb-3 text-sm"
+            onClick={handleNewChat}
+            className="btn w-full mb-2 text-sm"
             style={{
               background: 'var(--sidebar-hover)',
               color: '#ececec',
@@ -115,7 +83,19 @@ export default function App() {
             }}
           >
             <Plus className="w-4 h-4" />
-            新建批次
+            新建对话
+          </button>
+          <button
+            onClick={() => setShowOptimizer(true)}
+            className="btn w-full mb-3 text-sm"
+            style={{
+              background: 'transparent',
+              color: 'var(--accent)',
+              border: '1px solid var(--accent)',
+            }}
+          >
+            <Sparkles className="w-4 h-4" />
+            一句话生成规格书
           </button>
 
           <div className="relative mb-3">
@@ -133,7 +113,7 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto px-2">
           <div className="px-3 py-2">
-            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#808080' }}>历史批次</span>
+            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#808080' }}>历史会话</span>
           </div>
           <div className="space-y-0.5">
             {filteredBatches.map((b) => (
@@ -187,93 +167,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Chat Main */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar */}
-        {activeBatch && view === 'monitor' && (
-          <div
-            className="px-6 py-3 border-b flex items-center justify-between"
-            style={{ background: 'var(--main-bg)', borderColor: 'var(--border)' }}
-          >
-            <div>
-              <h2 className="font-semibold">
-                {activeBatch.project_name}
-                <span className="ml-2 text-xs px-2 py-0.5 rounded-full font-mono" style={{ background: 'var(--main-secondary)', color: 'var(--text-muted)' }}>
-                  {activeBatch.batch_id}
-                </span>
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                规格书: {activeBatch.spec_file} · 状态: {activeBatch.status}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => { setActiveBatchId(null); setView('create'); }}
-                className="btn text-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                新建
-              </button>
-              {activeBatch.status === 'completed' && (
-                <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>全部完成</span>
-              )}
-              {activeBatch.status === 'failed' && (
-                <span className="text-sm font-medium" style={{ color: '#ef4444' }}>执行失败</span>
-              )}
-              {activeBatch.status === 'running' && (
-                <span className="text-sm font-medium animate-pulse" style={{ color: 'var(--accent)' }}>运行中</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {view === 'create' && (
-            <BatchCreator
-              onCreated={handleBatchCreated}
-              batches={batches}
-              onSelectBatch={handleSelectBatch}
-              onOpenOptimizer={() => setShowPromptOptimizer(true)}
-              importedSpec={''}
-              onClearImportedSpec={() => {}}
-            />
-          )}
-
-          {view === 'monitor' && activeBatchId && activeBatch && (
-            <div className="space-y-6">
-              <PipelineView
-                nodes={activeBatch.nodes}
-                currentNode={activeBatch.current_node}
-                batchId={activeBatchId}
-                mode={activeBatch.mode}
-                onRefresh={refreshBatch}
-              />
-              <ReActLog batchId={activeBatchId} batchStatus={activeBatch.status} />
-              <FilePreview
-                batchId={activeBatchId}
-                nodes={activeBatch.nodes}
-                wsHost={window.location.host}
-              />
-            </div>
-          )}
-
-          {view === 'monitor' && !activeBatchId && (
-            <div className="text-center py-20">
-              <FolderOpen className="w-16 h-16 mx-auto mb-4" style={{ color: '#d1d5db' }} />
-              <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>选择一个批次</h3>
-              <p style={{ color: 'var(--text-muted)' }}>从左侧列表中选择已创建的批次查看执行详情</p>
-            </div>
-          )}
-        </main>
+        <ChatView batchId={activeBatchId} onBatchCreated={handleBatchCreated} importSpec={importSpec} onSpecConsumed={() => setImportSpec(null)} />
       </div>
 
-      {/* Prompt Optimizer Modal */}
-      {showPromptOptimizer && (
-        <PromptOptimizer
-          onImport={handleImportSpec}
-          onClose={() => setShowPromptOptimizer(false)}
-        />
+      {showOptimizer && (
+        <PromptOptimizer onImport={handleImportSpec} onClose={() => setShowOptimizer(false)} />
       )}
     </div>
   );
