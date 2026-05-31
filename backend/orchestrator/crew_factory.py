@@ -41,6 +41,8 @@ def _setup_local_qwen():
     os.environ["OPENAI_API_BASE"] = settings.qwen_vllm_api_base
     if not os.environ.get("OPENAI_API_KEY"):
         os.environ["OPENAI_API_KEY"] = "not-needed"
+    import litellm
+    litellm.openai_extra_body = {"thinking": {"type": "disabled"}}
 
 
 def _setup_kimi():
@@ -49,6 +51,8 @@ def _setup_kimi():
         os.environ["OPENAI_API_BASE"] = settings.moonshot_api_base
     if settings.moonshot_api_key:
         os.environ["OPENAI_API_KEY"] = settings.moonshot_api_key
+    import litellm
+    litellm.openai_extra_body = {"thinking": {"type": "disabled"}}
 
 
 def _setup_glm():
@@ -56,6 +60,10 @@ def _setup_glm():
     if settings.zhipu_api_key:
         os.environ["ZHIPU_API_KEY"] = settings.zhipu_api_key
         os.environ["ZAI_API_KEY"] = settings.zhipu_api_key
+    os.environ["OPENAI_API_BASE"] = "https://open.bigmodel.cn/api/paas/v4"
+    os.environ["OPENAI_API_KEY"] = settings.zhipu_api_key
+    import litellm
+    litellm.openai_extra_body = {"thinking": {"type": "disabled"}}
 
 
 # ── Agent Definitions ────────────────────────────────────

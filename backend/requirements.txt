@@ -36,3 +36,4 @@ PyPDF2>=3.0.0
 openpyxl>=3.1.0
 beautifulsoup4>=4.12.0
 pyyaml>=6.0.0
+lark-oapi>=1.0.0

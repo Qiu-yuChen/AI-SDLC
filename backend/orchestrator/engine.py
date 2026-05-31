@@ -181,6 +181,23 @@ class OrchestratorEngine:
                 "output_files": output_files,
             })
 
+            # 代码生成阶段：审查回环 (生成→审查→修复)
+            if node_id == "代码生成":
+                try:
+                    from orchestrator.code_review_loop import run_code_review_loop
+                    review_score = run_code_review_loop(self.batch_id)
+                    if review_score:
+                        self.sm.append_log({"event": "code_review_done", "score": review_score})
+                except Exception:
+                    pass
+
+            # 飞书进度回推
+            try:
+                from api.routes_feishu import push_feishu_progress
+                push_feishu_progress(self.batch_id, f"{node_name} 完成 ({duration:.0f}s)")
+            except Exception:
+                pass
+
             # 后台启动质量审查 + 技能存储（不阻塞流水线）
             threading.Thread(target=self._run_quality_review, args=(node_id, node_name), daemon=True).start()
 

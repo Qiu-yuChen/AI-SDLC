@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, PanelLeftClose, PanelLeft, Zap, Sparkles, Sun, Moon, Trash2, Archive } from 'lucide-react';
+import { Plus, Search, PanelLeftClose, PanelLeft, Sparkles, Sun, Moon, Trash2, Archive } from 'lucide-react';
 import { ChatView } from './components/ChatView';
 import { PromptOptimizer } from './components/PromptOptimizer';
 import { listBatches, deleteBatch } from './api/client';
@@ -71,9 +71,18 @@ export default function App() {
         <div className="p-4 border-b" style={{ borderColor: 'var(--sidebar-hover)' }}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Zap className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-              <h1 className="text-base font-bold tracking-tight">
-                AI-<span style={{ color: 'var(--accent)' }}>SDLC</span>
+              <svg className="w-5 h-5" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" style={{ color: 'var(--accent)' }}>
+                <path d="M469.333333 42.666667v42.666666H298.666667a128 128 0 0 0-128 128v128a213.333333 213.333333 0 0 0 213.333333 213.333334h256a213.333333 213.333333 0 0 0 213.333333-213.333334V213.333333a128 128 0 0 0-128-128h-170.666666V42.666667h-85.333334zM256 213.333333a42.666667 42.666667 0 0 1 42.666667-42.666666h426.666666a42.666667 42.666667 0 0 1 42.666667 42.666666v128a128 128 0 0 1-128 128H384a128 128 0 0 1-128-128V213.333333z m149.333333 170.666667a64 64 0 1 0 0-128 64 64 0 0 0 0 128z m213.333334 0a64 64 0 1 0 0-128 64 64 0 0 0 0 128zM256 938.666667a256 256 0 0 1 512 0h85.333333a341.333333 341.333333 0 1 0-682.666666 0h85.333333z" fill="currentColor" />
+              </svg>
+              <h1
+                className="text-base font-bold tracking-widest"
+                style={{
+                  fontFamily: 'Orbitron, sans-serif',
+                  letterSpacing: '0.15em',
+                  textShadow: '0 0 10px rgba(16, 163, 127, 0.35)',
+                }}
+              >
+                SDLC
               </h1>
             </div>
             <button

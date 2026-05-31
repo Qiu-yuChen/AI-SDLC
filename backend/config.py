@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     wechat_token: str = "ai_sdlc_token"
     wechat_aes_key: str = ""
 
+    # Feishu Bot
+    feishu_app_id: str = ""
+    feishu_app_secret: str = ""
+
     # LLM — 公共参数
     llm_temperature: float = 0.3
     llm_max_tokens: int = 8192
@@ -63,6 +67,18 @@ class Settings(BaseSettings):
     design_max_iter: int = 25
     codegen_max_iter: int = 20
     test_max_iter: int = 15
+
+    # 代码审查回环 (生成→审查→修复循环)
+    code_review_loop_enabled: bool = True
+    code_review_model: str = ""        # 审查模型(空=用 primary_model)
+    code_review_max_rounds: int = 3    # 最多几轮
+    code_review_threshold: int = 70    # 质量 ≥ 此分则提前停止
+
+    # 代码审查回环 (生成→审查→修复, 直到达标或达到上限)
+    code_review_loop_enabled: bool = True
+    code_review_model: str = ""        # 审查模型(空=用 primary_model)
+    code_review_max_rounds: int = 3    # 最多几轮
+    code_review_threshold: int = 70    # 质量 ≥ 此分则提前停止
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

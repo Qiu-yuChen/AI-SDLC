@@ -1,40 +1,39 @@
-# 员工临时车辆预约程序概要设计文档
+# 员工临时车辆预约系统概要设计文档
 
 ## 1. 系统概述
 
 ### 1.1 项目背景与目标
 
-**项目背景**：当前员工临时车辆入厂管理存在以下问题：
-- 人工抬杆效率低：员工需下车刷卡验证身份后由保安手动抬杆，高峰期通行缓慢。
-- 无车辆档案记录：临时车无系统登记，车主信息不可追溯。
-- 缺乏预约机制：无法控制入厂车辆数量，易造成拥堵。
-- 离厂缴费不便：依赖现场扫码缴费，流程繁琐。
+随着公司业务的快速发展，员工日常通勤需求增加，现有车辆资源无法满足临时用车需求。为提高车辆使用效率，降低管理成本，特开发“员工临时车辆预约系统”，实现员工对车辆的在线预约、审批、使用和归还全流程管理。
 
-**项目目标**：构建一个面向公司员工的**临时车辆预约管理系统**，实现：
-- 员工在线预约临时入厂车辆；
-- 自动对接科拓车辆管理系统，实现**自动抬杆入厂**；
-- 支持提前缴费，提升离厂效率；
-- 实现车位配额管控、信息可追溯、操作便捷化；
-- 提升早高峰时段车辆通行效率。
+本系统旨在：
+- 实现员工临时用车的在线预约与审批
+- 提高车辆使用透明度与管理效率
+- 降低人为干预和资源浪费
+- 支持移动端与PC端双平台使用
 
 ### 1.2 系统范围与边界
 
 **系统范围**：
-- 员工端：在线提交临时车辆预约申请、查看剩余车位、取消预约、提前缴费。
-- 后台管理端：配置园区预约规则、查看历史预约记录、监控实时状态。
-- 数据同步：与科拓系统进行数据交互，实现预约信息和缴费信息的推送。
+- 员工临时车辆预约申请
+- 预约审批流程管理
+- 车辆状态管理
+- 使用与归还记录
+- 报表与统计分析
 
 **系统边界**：
-- 不涉及车辆道闸硬件控制（仅负责数据推送）。
-- 不涉及财务系统直接对接，缴费金额为模拟值。
-- 不涉及员工身份认证系统（前端使用工号/手机号登录，后端校验工号有效性）。
+- 不包括车辆维修、保养、保险等后端运维管理
+- 不包括车辆调度、路线规划、油耗监控等扩展功能
+- 不包含与外部交通系统（如公交、地铁）的集成
 
 ### 1.3 用户角色定义
 
-| 角色 | 权限与功能 |
-|------|------------|
-| **普通员工** | 提交预约申请、查看剩余车位、取消预约、提前缴费、查看个人预约记录 |
-| **管理员** | 配置园区预约规则（包括每日最大配额、是否开启预约）、查看所有历史预约记录、查看实时状态、管理园区信息 |
+| 角色 | 权限说明 |
+|------|----------|
+| 员工 | 可查看可用车辆、提交预约申请、查看审批状态、查看历史记录 |
+| 部门主管 | 可审批员工预约申请、查看本部门员工预约情况 |
+| 行政/车辆管理员 | 可查看所有预约、管理车辆信息、处理异常、生成报表 |
+| 系统管理员 | 可配置系统参数、用户权限、维护系统数据 |
 
 ## 2. 系统架构设计
 
@@ -42,89 +41,131 @@
 
 ```mermaid
 graph TD
-    A[前端页面] --> B[API网关]
-    B --> C[后端服务]
-    C --> D[CSV数据库]
-    C --> E[科拓系统接口]
-    D --> F[配置表]
-    D --> G[预约表]
-    D --> H[缴费表]
-    E --> G
-    E --> H
+    A[前端] --> B[API网关]
+    B --> C[用户服务]
+    B --> D[审批服务]
+    B --> E[车辆服务]
+    B --> F[报表服务]
+    C --> G[用户管理数据库]
+    D --> H[审批流程数据库]
+    E --> I[车辆信息数据库]
+    F --> J[统计数据库]
+    G --> K[CSV模拟数据库]
+    H --> K
+    I --> K
+    J --> K
 
     style A fill:#f9f,stroke:#333
     style B fill:#bbf,stroke:#333
-    style C fill:#ff9,stroke:#333
-    style D fill:#9f9,stroke:#333
-    style E fill:#f9f,stroke:#333
-    style F fill:#9f9,stroke:#333
-    style G fill:#9f9,stroke:#333
-    style H fill:#9f9,stroke:#333
+    style C fill:#bbf,stroke:#333
+    style D fill:#bbf,stroke:#333
+    style E fill:#bbf,stroke:#333
+    style F fill:#bbf,stroke:#333
+    style G fill:#f9f,stroke:#333
+    style H fill:#f9f,stroke:#333
+    style I fill:#f9f,stroke:#333
+    style J fill:#f9f,stroke:#333
+    style K fill:#f9f,stroke:#333
 ```
 
 ### 2.2 分层说明
 
-**表示层（Presentation Layer）**：
-- 前端页面（HTML + JavaScript）
-- 负责用户交互、数据展示、表单提交
+**表示层（Presentation Layer）**
+- 前端界面：基于 HTML/JS/React/Vue 构建
+- 支持 PC 端和移动端响应式布局
+- 提供用户登录、预约提交、审批查看、报表展示等交互功能
 
-**业务逻辑层（Business Logic Layer）**：
-- FastAPI 后端服务
-- 负责接收请求、校验参数、执行业务逻辑（如预约规则校验、配额判断、数据同步）
-- 提供 RESTful API 接口
+**业务逻辑层（Business Logic Layer）**
+- API 网关：统一入口，路由分发请求
+- 用户服务：处理用户登录、信息查询、预约提交
+- 审批服务：处理审批流程、状态流转、意见记录
+- 车辆服务：管理车辆信息、状态更新、可用车辆推荐
+- 报表服务：生成统计图表、导出 Excel 报表
 
-**数据访问层（Data Access Layer）**：
-- 使用 CSV 文件模拟数据库
-- 包含以下表结构：
-  - `config.csv`：园区配置表（园区名称、每日配额、是否开启预约）
-  - `reservation.csv`：预约记录表（车牌号、园区、预约时间、状态、用户信息）
-  - `payment.csv`：缴费记录表（车牌号、园区、缴费时间、金额、状态）
+**数据访问层（Data Access Layer）**
+- 所有业务逻辑通过统一的 CSV 数据库进行数据读写
+- CSV 文件作为模拟数据库，存储用户、车辆、预约、审批、使用记录等数据
+- 数据文件路径：`/data/` 目录下，以 `.csv` 结尾
 
-### 2.3 技术选型
+### 2.3 技术选型说明
 
-- **后端框架**：Python FastAPI（高性能、异步支持、RESTful API）
-- **前端技术**：HTML + JavaScript（静态页面，无需复杂框架）
-- **数据存储**：CSV 文件（模拟数据库，符合赛题要求）
-- **部署方式**：本地部署，支持在浏览器中访问
-- **数据同步**：通过 HTTP 请求模拟与科拓系统的接口交互（POST 请求推送数据）
+| 技术 | 说明 |
+|------|------|
+| **后端框架** | Python FastAPI（高性能异步框架，支持 RESTful API） |
+| **前端框架** | React/Vue.js（响应式、组件化开发） |
+| **数据库** | CSV 文件（模拟数据库，符合赛题要求） |
+| **API 设计** | RESTful 风格，使用标准 HTTP 方法 |
+| **开发工具** | VS Code + Git + Docker |
+| **部署方式** | Docker 容器化部署，支持本地或云环境 |
+
+> 说明：本系统严格遵循赛题要求，使用 CSV 模拟数据库，不使用 SQL/NoSQL 数据库，所有数据操作通过 CSV 文件读写实现。
 
 ## 3. 模块划分
 
-| 模块 | 功能描述 | 职责 | 依赖关系 |
-|------|---------|------|----------|
-| **系统配置模块** | 管理员配置园区预约规则、查看实时状态 | - 配置园区名称、每日最大配额、是否开启预约<br>- 提供实时剩余车位显示 | 依赖 `config.csv` 表，调用 `get_remaining_slots()` 函数 |
-| **预约申请模块** | 员工提交临时车辆预约申请 | - 校验输入信息（姓名、工号、手机号、车牌号、时间）<br>- 校验是否超过配额<br>- 生成预约记录并推送至科拓系统 | 依赖 `reservation.csv` 表，调用 `create_reservation()` 函数，调用 `send_to_ketuo()` 函数 |
-| **预约取消模块** | 员工取消已提交的预约申请 | - 根据车牌号和时间查询记录<br>- 更新状态为“已取消”<br>- 释放配额 | 依赖 `reservation.csv` 表，调用 `cancel_reservation()` 函数 |
-| **提前缴费模块** | 员工提前缴费，标记为已缴费 | - 提交缴费请求<br>- 生成缴费记录并写入 `payment.csv` 表 | 依赖 `payment.csv` 表，调用 `record_payment()` 函数 |
-| **管理员后台模块** | 管理员登录、查看配置、历史记录、实时状态 | - 提供登录接口<br>- 查看各园区配置<br>- 查看历史预约记录<br>- 查看实时状态 | 依赖 `config.csv`, `reservation.csv`, `payment.csv` 表 |
+### 3.1 模块功能描述
 
-> **模块间依赖关系**：
-> - 预约申请模块依赖系统配置模块获取配额信息
-> - 预约取消模块依赖预约申请模块获取预约记录
-> - 提前缴费模块依赖预约申请模块获取车牌号和园区
-> - 所有模块共享 `reservation.csv` 和 `payment.csv` 表
+| 模块 | 功能描述 | 职责 |
+|------|----------|------|
+| **用户服务** | 处理用户登录、注册、信息查询、权限控制 | 提供用户身份验证、信息获取、权限判断 |
+| **车辆服务** | 管理车辆信息、状态、可用车辆推荐 | 提供车辆列表、状态查询、车辆状态更新 |
+| **预约服务** | 处理预约申请、状态流转、时间校验 | 提交预约、获取可用车辆、状态更新 |
+| **审批服务** | 处理审批流程、审批记录、状态更新 | 支持多级审批、审批意见填写、驳回处理 |
+| **报表服务** | 生成统计图表、导出报表 | 提供按部门、日期、车辆类型等维度的统计 |
+| **通知服务** | 发送短信、邮件、站内信提醒 | 支持预约提醒、审批结果通知 |
+
+### 3.2 模块间依赖关系
+
+- 用户服务 → 车辆服务：获取车辆列表用于预约选择
+- 用户服务 → 预约服务：提交预约申请
+- 预约服务 → 审批服务：将预约状态设置为“待审批”
+- 审批服务 → 预约服务：审批通过后更新状态为“已通过”
+- 车辆服务 → 用户服务：验证用户是否拥有预约权限
+- 报表服务 → 所有服务：获取历史数据生成统计
+
+### 3.3 模块接口定义
+
+| 模块 | 接口 | 方法 | 路径 |
+|------|------|------|------|
+| 用户服务 | 获取用户信息 | GET | /api/users/{id} |
+| 用户服务 | 获取用户列表 | GET | /api/users |
+| 车辆服务 | 获取车辆列表 | GET | /api/vehicles |
+| 车辆服务 | 获取可用车辆 | GET | /api/vehicles/available |
+| 预约服务 | 提交预约申请 | POST | /api/appointments |
+| 预约服务 | 获取预约详情 | GET | /api/appointments/{id} |
+| 审批服务 | 提交审批 | POST | /api/approvals |
+| 审批服务 | 获取审批列表 | GET | /api/approvals |
+| 报表服务 | 获取统计报表 | GET | /api/reports |
 
 ## 4. API 接口设计
 
-### 4.1 前端请求接口
+### 4.1 REST API 端点列表
 
 | 方法 | 路径 | 请求参数 | 响应格式 | 说明 |
 |------|------|----------|----------|------|
-| `GET` | `/api/config` | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"cities\": [\"潍坊\", \"青岛\", \"荣成\", \"东莞\"], \"rules\": {\"潍坊\": {\"daily_limit\": 50, \"enabled\": true}, ...}}}` | 获取园区配置信息 |
-| `GET` | `/api/reservation/available` | `city`（园区名）、`date`（日期） | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"available_slots\": 25}}` | 获取指定园区某天剩余可用车位 |
-| `POST` | `/api/reservation/create` | `name`, `work_number`, `phone`, `plate_number`, `city`, `date` | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"reservation_id\": \"12345\"}}` | 提交临时车辆预约申请 |
-| `POST` | `/api/reservation/cancel` | `plate_number`, `city`, `date` | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"message\": \"预约已取消\"}}` | 取消已提交的预约申请 |
-| `POST` | `/api/payment/record` | `plate_number`, `city`, `amount` | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"payment_id\": \"67890\"}}` | 提前缴费记录 |
-| `GET` | `/api/admin/reservations` | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": [{\"plate\": \"鲁G12345\", \"city\": \"潍坊\", \"date\": \"2024-05-20\", \"status\": \"success\"}]}` | 获取所有历史预约记录 |
+| GET | /api/users | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取用户列表 |
+| GET | /api/users/{id} | id | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 获取单个用户信息 |
+| GET | /api/vehicles | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取所有车辆 |
+| GET | /api/vehicles/available | start_time, end_time | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取可用车辆（按时间筛选） |
+| POST | /api/appointments | user_id, vehicle_id, start_time, end_time, purpose | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 提交预约申请 |
+| GET | /api/appointments/{id} | id | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 获取预约详情 |
+| POST | /api/approvals | appointment_id, approve_status, comment | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 提交审批 |
+| GET | /api/approvals | status | `{\"code\": 0, \"msg\": \"success\", \"data\": [{...}]}` | 获取审批列表 |
+| GET | /api/reports | type, start_date, end_date | `{\"code\": 0, \"msg\": \"success\", \"data\": {...}}` | 获取统计报表 |
 
-### 4.2 示例请求与响应
+### 4.2 示例请求/响应
 
-#### 示例 1：获取园区配置
+#### 示例 1：提交预约申请
 
 **请求**：
-```http
-GET /api/config HTTP/1.1
-Host: localhost:8000
+```json
+POST /api/appointments
+{
+  "user_id": "U1001",
+  "vehicle_id": "V001",
+  "start_time": "2024-06-15T09:00:00",
+  "end_time": "2024-06-15T12:00:00",
+  "purpose": "出差"
+}
 ```
 
 **响应**：
@@ -133,144 +174,128 @@ Host: localhost:8000
   "code": 0,
   "msg": "success",
   "data": {
-    "cities": [
-      "潍坊",
-      "青岛",
-      "荣成",
-      "东莞"
-    ],
-    "rules": {
-      "潍坊": {
-        "daily_limit": 50,
-        "enabled": true
-      },
-      "青岛": {
-        "daily_limit": 30,
-        "enabled": true
-      },
-      "荣成": {
-        "daily_limit": 0,
-        "enabled": false
-      },
-      "东莞": {
-        "daily_limit": 40,
-        "enabled": true
-      }
+    "appointment_id": "A20240615001",
+    "status": "pending",
+    "apply_time": "2024-06-15T10:00:00"
+  }
+}
+```
+
+#### 示例 2：获取审批列表
+
+**请求**：
+```json
+GET /api/approvals?status=pending
+```
+
+**响应**：
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": [
+    {
+      "appointment_id": "A20240615001",
+      "status": "pending",
+      "approver_id": "M001",
+      "apply_time": "2024-06-15T10:00:00"
     }
-  }
-}
-```
-
-#### 示例 2：提交预约申请
-
-**请求**：
-```http
-POST /api/reservation/create HTTP/1.1
-Host: localhost:8000
-Content-Type: application/json
-{
-  "name": "张三",
-  "work_number": "1001",
-  "phone": "13800138000",
-  "plate_number": "鲁G12345",
-  "city": "潍坊",
-  "date": "2024-05-20"
-}
-```
-
-**响应**：
-```json
-{
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "reservation_id": "R20240520001"
-  }
-}
-```
-
-#### 示例 3：提前缴费
-
-**请求**：
-```http
-POST /api/payment/record HTTP/1.1
-Host: localhost:8000
-Content-Type: application/json
-{
-  "plate_number": "鲁G12345",
-  "city": "潍坊",
-  "amount": 50
-}
-```
-
-**响应**：
-```json
-{
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "payment_id": "P20240520001"
-  }
+  ]
 }
 ```
 
 ## 5. 数据模型设计
 
-### 5.1 CSV 表结构定义
+### 5.1 CSV 表结构定义（模拟数据库）
 
-#### 表1：`config.csv` - 园区配置表
+#### 表1：users.csv
+| 字段名 | 类型 | 是否必填 | 说明 |
+|--------|------|----------|------|
+| user_id | string | 是 | 唯一标识符，如 U1001 |
+| name | string | 是 | 姓名 |
+| department | string | 是 | 所属部门 |
+| phone | string | 是 | 手机号码 |
+| email | string | 否 | 邮箱 |
+| role | string | 是 | 角色（employee, manager, admin） |
+| status | string | 是 | 状态（active, inactive） |
 
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| city | string | 必填 | 园区名称（如：潍坊） |
-| daily_limit | int | 必填 | 每日最大预约配额（0表示关闭） |
-| enabled | bool | 必填 | 是否开启预约（true/false） |
+#### 表2：vehicles.csv
+| 字段名 | 类型 | 是否必填 | 说明 |
+|--------|------|----------|------|
+| vehicle_id | string | 是 | 车辆唯一标识，如 V001 |
+| plate_number | string | 是 | 车牌号 |
+| model | string | 是 | 车型 |
+| color | string | 是 | 颜色 |
+| status | string | 是 | 状态（available, occupied, under_maintenance） |
+| department | string | 是 | 所属部门 |
+| create_time | datetime | 是 | 创建时间 |
 
-> **示例数据**：
-> | city | daily_limit | enabled |
-> |------|-------------|----------|
-> | 潍坊 | 50 | true |
-> | 青岛 | 30 | true |
-> | 荣成 | 0 | false |
-> | 东莞 | 40 | true |
+#### 表3：appointments.csv
+| 字段名 | 类型 | 是否必填 | 说明 |
+|--------|------|----------|------|
+| appointment_id | string | 是 | 预约唯一标识，如 A20240615001 |
+| user_id | string | 是 | 提交人ID |
+| vehicle_id | string | 是 | 车辆ID |
+| start_time | datetime | 是 | 开始时间 |
+| end_time | datetime | 是 | 结束时间 |
+| purpose | string | 是 | 用车目的 |
+| status | string | 是 | 状态（pending, approved, rejected, used） |
+| apply_time | datetime | 是 | 提交时间 |
+| approve_time | datetime | 否 | 审批时间 |
+| remark | string | 否 | 备注 |
 
-#### 表2：`reservation.csv` - 预约记录表
+#### 表4：approval_logs.csv
+| 字段名 | 类型 | 是否必填 | 说明 |
+|--------|------|----------|------|
+| log_id | string | 是 | 日志唯一标识 |
+| appointment_id | string | 是 | 预约ID |
+| approver_id | string | 是 | 审批人ID |
+| approve_status | string | 是 | 审批结果（approved, rejected） |
+| comment | string | 否 | 审批意见 |
+| approve_time | datetime | 是 | 审批时间 |
 
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| plate_number | string | 必填 | 车牌号（格式：鲁G12345 或 鲁G12345E） |
-| city | string | 必填 | 园区名称 |
-| date | date | 必填 | 预约日期（格式：YYYY-MM-DD） |
-| status | string | 必填 | 状态（success / canceled / pending） |
-| user_info | string | 可选 | 用户信息（姓名/工号/手机号，用 `/` 分隔） |
-
-> **示例数据**：
-> | plate_number | city | date | status | user_info |
-> |-------------|--------|--------|--------|-----------|
-> | 鲁G12345 | 潍坊 | 2024-05-20 | success | 张三/1001/13800138000 |
-> | 鲁G67890 | 青岛 | 2024-05-20 | canceled | 李四/2002/13900139000 |
-
-#### 表3：`payment.csv` - 缴费记录表
-
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| plate_number | string | 必填 | 车牌号 |
-| city | string | 必填 | 园区名称 |
-| payment_time | datetime | 必填 | 缴费时间（格式：YYYY-MM-DD HH:MM:SS） |
-| amount | float | 必填 | 缴费金额（单位：元） |
-| status | string | 必填 | 状态（success / failed） |
-
-> **示例数据**：
-> | plate_number | city | payment_time | amount | status |
-> |-------------|--------|----------------|--------|--------|
-> | 鲁G12345 | 潍坊 | 2024-05-20 09:00:00 | 50.0 | success |
-> | 鲁G67890 | 青岛 | 2024-05-20 10:30:00 | 30.0 | success |
+#### 表5：usage_records.csv
+| 字段名 | 类型 | 是否必填 | 说明 |
+|--------|------|----------|------|
+| record_id | string | 是 | 使用记录ID |
+| appointment_id | string | 是 | 预约ID |
+| start_time | datetime | 是 | 实际开始时间 |
+| end_time | datetime | 是 | 实际结束时间 |
+| actual_duration | float | 是 | 实际使用时长（分钟） |
+| remark | string | 否 | 备注 |
 
 ### 5.2 表间关系说明
 
-- `reservation.csv` 与 `config.csv` 关联：通过 `city` 字段关联，用于判断配额是否超限。
-- `reservation.csv` 与 `payment.csv` 关联：通过 `plate_number` 和 `city` 字段关联，用于判断是否已缴费。
-- 所有表均以 `plate_number` 和 `city` 为唯一标识，确保数据一致性。
+- `users` 表与 `appointments` 表：一对一关系，`user_id` 为外键
+- `vehicles` 表与 `appointments` 表：一对一关系，`vehicle_id` 为外键
+- `appointments` 表与 `approval_logs` 表：一对多关系，`appointment_id` 为外键
+- `appointments` 表与 `usage_records` 表：一对一关系，`appointment_id` 为外键
+
+### 5.3 示例数据
+
+**users.csv 示例**：
+```csv
+user_id,name,department,phone,email,role,status
+U1001,张三,技术部,13800138000,zhangsan@company.com,employee,active
+U1002,李四,销售部,13900139000,lisi@company.com,employee,active
+M001,王五,技术部主管,13700137000,wangwu@company.com,manager,active
+A001,赵六,行政部,13600136000,zhao@company.com,admin,active
+```
+
+**vehicles.csv 示例**：
+```csv
+vehicle_id,plate_number,model,color,status,department,create_time
+V001,京A12345,丰田卡罗拉,白色,available,技术部,2024-01-01T00:00:00
+V002,京B67890,本田雅阁,蓝色,available,销售部,2024-01-02T00:00:00
+V003,京C54321,大众帕萨特,黑色,occupied,技术部,2024-01-03T00:00:00
+```
+
+**appointments.csv 示例**：
+```csv
+appointment_id,user_id,vehicle_id,start_time,end_time,purpose,status,apply_time,approve_time,remark
+A20240615001,U1001,V001,2024-06-15T09:00:00,2024-06-15T12:00:00,出差,pending,2024-06-15T10:00:00,
+A20240615002,U1002,V002,2024-06-15T14:00:00,2024-06-15T16:00:00,会议,pending,2024-06-15T11:00:00,
+```
 
 ## 6. 关键业务流程
 
@@ -279,72 +304,74 @@ Content-Type: application/json
 ```mermaid
 sequenceDiagram
     participant 员工
+    participant 部门主管
+    participant 行政管理员
     participant 系统
-    participant 科拓系统
 
     员工->>系统: 提交预约申请
-    系统->>系统: 校验输入信息（姓名、工号、手机号、车牌号、时间）
-    系统->>系统: 检查园区配额（是否超限）
-    alt 配额充足
-        系统->>系统: 生成预约记录
-        系统->>科拓系统: 推送预约信息（车牌号、园区、时间、用户信息）
-        科拓系统-->>系统: 接收成功
-        系统->>员工: 返回成功提示
-    else 配额不足
-        系统->>员工: 返回“当前园区预约已满”提示
+    系统->>系统: 校验车辆可用性
+    系统->>系统: 生成预约ID，状态设为\"pending\"
+    系统->>部门主管: 发送审批通知
+    部门主管->>系统: 审批通过（或拒绝）
+    alt 审批通过
+        系统->>系统: 状态更新为\"approved\"
+        系统->>员工: 发送使用提醒
+    else 审批拒绝
+        系统->>系统: 状态更新为\"rejected\"
+        系统->>员工: 发送驳回通知
     end
-
-    员工->>系统: 提交提前缴费
-    系统->>系统: 校验车牌号和园区
-    系统->>系统: 生成缴费记录
-    系统->>科拓系统: 推送缴费信息（车牌号、园区、金额）
-    科拓系统-->>系统: 接收成功
-    系统->>员工: 返回“缴费成功”提示
-
-    员工->>系统: 取消预约
-    系统->>系统: 查询预约记录
-    系统->>系统: 更新状态为“已取消”
-    系统->>系统: 释放配额
-    系统->>员工: 返回“预约已取消”提示
+    员工->>系统: 取车（扫码或输入验证码）
+    系统->>系统: 记录使用开始时间
+    员工->>系统: 归还车辆
+    系统->>系统: 记录使用结束时间，生成使用记录
+    系统->>系统: 车辆状态更新为\"available\"
 ```
 
 ### 6.2 异常处理流程
 
-| 异常场景 | 处理方式 |
-|----------|----------|
-| 车牌号格式错误 | 提示“车牌号格式不正确（应为鲁G12345 或 鲁G12345E）” |
-| 工号/手机号为空 | 提示“工号或手机号不能为空” |
-| 预约时间不在未来 | 提示“预约时间必须为未来日期” |
-| 预约配额超限 | 提示“当前园区预约已满” |
-| 重复预约（同车牌同园区同天） | 提示“该车辆已预约” |
-| 提前缴费失败（科拓系统接口错误） | 提示“缴费失败，请重试” |
-| 系统配置错误（如配额为0且开启预约） | 提示“该园区暂不开放预约” |
+- **预约时间冲突**：系统检查车辆在指定时间段内是否已被占用，若冲突则提示“该时间段车辆已被占用”并阻止提交
+- **车辆状态异常**：若车辆状态为“维修”或“不可用”，则提示“该车辆当前不可用”
+- **审批超时**：若审批超过24小时未完成，系统自动标记为“已超时”并通知管理员
+- **用户信息错误**：提交时校验用户ID、手机号、邮箱等字段，若错误则提示“信息不完整”
+- **网络错误**：请求失败时返回错误码 500，并记录日志
 
 ## 7. 非功能性需求
 
 ### 7.1 性能指标
 
-- **响应时间**：所有 API 接口响应时间 ≤ 1 秒（在本地单机环境下）
-- **并发支持**：支持 100 个并发用户同时访问（FastAPI 异步支持）
-- **数据处理能力**：每秒处理 ≥ 50 条预约请求
+- 支持并发用户数 ≥ 500
+- 页面响应时间 ≤ 2秒（95%请求）
+- 预约提交响应时间 ≤ 1秒
+- 数据读取时间 ≤ 1秒（1000条记录以内）
 
 ### 7.2 安全策略
 
-- **数据安全**：所有敏感信息（如手机号、工号）在前端不存储，仅在请求中传递，后端不保存原始数据。
-- **访问控制**：
-  - 普通员工仅能访问自己的预约信息
-  - 管理员需登录后访问后台配置和历史记录
-- **输入校验**：所有输入参数进行严格校验，防止 SQL 注入、XSS 攻击等。
-- **接口安全**：API 接口不暴露在公网，仅在内网部署，访问需通过 IP 白名单控制。
+- 所有接口使用 HTTPS 传输
+- 用户登录采用 JWT 令牌认证
+- 敏感字段（如手机号、身份证）进行加密存储
+- 权限控制采用 RBAC 模型，角色与权限严格绑定
+- 操作日志记录所有关键操作（登录、审批、修改）
+- 防止 SQL 注入、XSS 攻击（前端校验 + 后端过滤）
 
 ### 7.3 错误处理策略
 
-- **HTTP 状态码**：
-  - `200`：成功
-  - `400`：请求参数错误
-  - `404`：资源未找到
-  - `500`：服务器内部错误
-- **错误信息**：
-  - 前端显示用户友好的错误提示，后端记录日志用于排查。
-  - 错误信息不暴露敏感数据（如数据库路径、密码）。
-- **日志记录**：所有关键操作（如预约提交、取消、缴费）记录到日志文件，便于审计。
+- 错误码规范：
+  - `0`：成功
+  - `10001`：参数缺失或格式错误
+  - `10002`：权限不足
+  - `10003`：数据不存在
+  - `10004`：系统错误
+- 错误响应格式：
+  ```json
+  {
+    "code": 10001,
+    "msg": "参数错误：缺少user_id",
+    "data": null
+  }
+  ```
+- 错误日志记录：所有错误信息记录到系统日志中，便于排查
+- 用户提示：前端显示友好的错误信息，避免暴露系统内部错误
+
+> 本设计文档版本：v1.0
+> 最后更新日期：2024年6月10日
+> 编制单位：IT部 - 企业服务组

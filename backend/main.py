@@ -10,34 +10,36 @@ from api.routes_prompt import router as prompt_router
 from api.routes_ws import router as ws_router
 from api.routes_stt import router as stt_router
 from api.routes_wechat import router as wechat_router
-from api.routes_feishu import router as feishu_router
 
 app = FastAPI(
     title="AI-SDLC",
-    description="基于 AI Agent 的 IT 功能全链路自动化开发系统",
-    version="1.0.0",
+    version="3.0",
+    docs_url="/docs",
 )
 
-# CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+workspace_abs = str(WORKSPACE_ROOT.resolve())
+app.mount("/workspace", StaticFiles(directory=workspace_abs), name="workspace")
 
 # API Routes
 app.include_router(batch_router, prefix="/api")
 app.include_router(prompt_router, prefix="/api")
 app.include_router(stt_router, prefix="/api")
 app.include_router(wechat_router, prefix="/api")
-app.include_router(feishu_router, prefix="/api")
 app.include_router(ws_router, prefix="/ws")
 
-# Static file serving (workspace output preview)
-workspace_abs = str(WORKSPACE_ROOT.resolve())
-app.mount("/workspace", StaticFiles(directory=workspace_abs), name="workspace")
+
+@app.on_event("startup")
+async def startup_feishu():
+    from api.routes_feishu import start_feishu_wss
+    start_feishu_wss()
 
 
 @app.get("/health")
