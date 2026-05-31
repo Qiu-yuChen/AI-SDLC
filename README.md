@@ -94,23 +94,23 @@ AI-SDLC 是一套基于多智能体协同的 IT 功能全链路自动化开发�
 ```
 +------------------------------------------------------------------+
 |                        User Interaction Layer                     |
-|   Web UI (React)  |  Feishu Bot (WSS)  |  REST API (FastAPI)     |
+|   Web UI (React)  |  Feishu Bot (WSS)  |  REST API (FastAPI)      |
 +-------------------------------+----------------------------------+
                                 | WebSocket (keepalive 10s)
 +-------------------------------v----------------------------------+
 |                        Orchestration Layer                        |
 |   OrchestratorEngine                                              |
-|   [Design Agent] -> [CodeGen Agent] -> [Test Agent] -> [Scoring] |
+|   [Design Agent] -> [CodeGen Agent] -> [Test Agent] -> [Scoring]  |
 |                          |                                        |
-|                          +--> Review Loop (max 3 rounds)         |
+|                          +--> Review Loop (max 3 rounds)          |
 +-------------------------------------------------------------------+
 |                         Model Dispatch Layer                      |
 |   LiteLLM Gateway                                                 |
-|   [Qwen3-4B/vLLM] [GLM-5.1] [DeepSeek] [OpenAI/Anthropic]       |
+|   [Qwen3-4B/vLLM] [GLM-5.1] [DeepSeek] [OpenAI/Anthropic]         |
 +-------------------------------------------------------------------+
 |                       Tools & Storage Layer                       |
-|   [File Tools]  [Code Tools]  [Scoring Tools]  [Skill Store]     |
-|   [Doc Parser]  [Poster Gen]  [STT / Whisper]                    |
+|   [File Tools]  [Code Tools]  [Scoring Tools]  [Skill Store]      |
+|   [Doc Parser]  [Poster Gen]  [STT / Whisper]                     |
 +-------------------------------------------------------------------+
 ```
 
