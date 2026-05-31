@@ -6,6 +6,12 @@ from config import DOCS_OUTPUT, settings
 from tools.quality_tools import lint_check, coverage_check, calculate_quality_score
 
 
+class _SafeDict(dict):
+    """缺失 key 时返回原始标记"""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
 def build_quality_review_prompt(node_id: str, batch_id: str) -> str:
     """Build the task description for the Quality Review Agent"""
     node_dir = DOCS_OUTPUT / batch_id / node_id
@@ -85,9 +91,9 @@ def run_quality_review(batch_id: str, node_id: str) -> dict:
     task_desc = build_quality_review_prompt(node_id, batch_id)
 
     task = Task(
-        description=task_desc,
+        description=task_desc.replace("{", "{{").replace("}", "}}"),
         agent=agent,
-        expected_output="Strict JSON: { score, total, issues, suggestions }",
+        expected_output="Strict JSON: {{ score, total, issues, suggestions }}",
     )
 
     crew = Crew(
@@ -98,7 +104,7 @@ def run_quality_review(batch_id: str, node_id: str) -> dict:
     )
 
     try:
-        result = crew.kickoff(inputs={"batch_id": batch_id})
+        result = crew.kickoff(inputs=_SafeDict(batch_id=batch_id))
         raw = str(result) if result else "{}"
 
         # Try to extract JSON from the output (may contain surrounding text)

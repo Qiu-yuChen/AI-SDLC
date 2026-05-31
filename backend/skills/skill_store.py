@@ -1,7 +1,8 @@
-"""Skill Store — 存储高质量 Agent 产出作为后续批次的参考范例
+"""Skill Store — 存储 Agent 产出作为后续批次的参考范例
 
-每个子任务完成后，如果质量评分 ≥ 阈值，自动保存输入→输出对。
-后续批次运行时，自动检索最相关的范例注入到 Agent prompt 中。
+包含两类技能：
+- 成功范例（高分产出）：正面参考，提示 Agent "应该怎么做"
+- 失败教训（低分/失败产出）：负面参考，提示 Agent "避免怎么做"
 """
 
 import json
@@ -12,8 +13,8 @@ from config import DOCS_OUTPUT, WORKSPACE_ROOT
 
 SKILLS_DIR = WORKSPACE_ROOT / "skills"
 SKILLS_FILE = SKILLS_DIR / "skills.json"
-QUALITY_THRESHOLD = 50  # 质量评分 ≥ 50 才保存为技能
-MAX_SKILL_CONTENT = 3000  # 范例内容最大字符数（避免 prompt 过长）
+QUALITY_THRESHOLD = 50  # 质量评分 ≥ 50 才保存为成功技能
+MAX_SKILL_CONTENT = 3000  # 范例内容最大字符数
 
 
 def _load() -> list:
@@ -33,17 +34,12 @@ def _save(skills: list):
     )
 
 
+# ═══════════════════════════════════════════════════════════
+#  成功范例（正向学习）
+# ═══════════════════════════════════════════════════════════
+
 def save_skill(batch_id: str, node_id: str, quality_score: float) -> bool:
-    """节点完成后保存技能到技能库
-
-    Args:
-        batch_id: 批次 ID
-        node_id: 节点名（概要设计/代码生成/单元测试）
-        quality_score: 质量评分（0-100）
-
-    Returns:
-        True if saved, False if quality too low
-    """
+    """节点完成后保存成功技能到技能库"""
     if quality_score < QUALITY_THRESHOLD:
         return False
 
@@ -52,52 +48,129 @@ def save_skill(batch_id: str, node_id: str, quality_score: float) -> bool:
     if not node_dir.exists():
         return False
 
-    # 读取产出物内容
     outputs = []
     for f in sorted(node_dir.rglob("*.md")) + sorted(node_dir.rglob("*.py")):
         try:
             content = f.read_text(encoding="utf-8")
             if len(content) > MAX_SKILL_CONTENT:
                 content = content[:MAX_SKILL_CONTENT] + "\n... (已截断)"
-            outputs.append({
-                "path": str(f.relative_to(batch_dir)),
-                "content": content,
-            })
+            outputs.append({"path": str(f.relative_to(batch_dir)), "content": content})
         except Exception:
             continue
 
     if not outputs:
         return False
 
-    # 读取输入（规格说明书或设计文档）
-    # 对于概要设计节点，输入是规格说明书；对于代码生成/单元测试，输入是设计文档+代码
     inputs = _find_inputs(batch_id, node_id, batch_dir)
+    keywords = _extract_keywords(inputs)
 
     skills = _load()
     skills.append({
+        "skill_type": "success",
         "batch_id": batch_id,
         "node_id": node_id,
         "quality_score": quality_score,
+        "keywords": keywords,
         "inputs": inputs,
         "outputs": outputs,
     })
 
-    # 每个节点类型最多保留 20 个技能
-    node_skills = [s for s in skills if s["node_id"] == node_id]
-    if len(node_skills) > 20:
-        node_skills.sort(key=lambda s: s["quality_score"], reverse=True)
-        kept_ids = {s["batch_id"] for s in node_skills[:20]}
-        skills = [s for s in skills if s["node_id"] != node_id or s["batch_id"] in kept_ids]
-
+    _prune_skills(skills, node_id, "success", max_count=20)
     _save(skills)
     return True
+
+
+def _extract_keywords(inputs: list) -> list:
+    """从输入中提取业务关键词，用于跨域过滤"""
+    import re
+    text = " ".join(inp.get("content", "") for inp in inputs)
+    # 提取中文和英文关键词
+    chinese_words = re.findall(r'[\u4e00-\u9fff]{2,}', text)
+    # 去重，取前50个
+    seen = set()
+    keywords = []
+    for w in chinese_words:
+        if w not in seen and len(w) >= 2:
+            seen.add(w)
+            keywords.append(w)
+            if len(keywords) >= 50:
+                break
+    return keywords
+
+
+# ═══════════════════════════════════════════════════════════
+#  失败教训（反向学习）
+# ═══════════════════════════════════════════════════════════
+
+def save_failure_lesson(
+    batch_id: str,
+    node_id: str,
+    error: str,
+    quality_score: float = 0,
+) -> bool:
+    """保存失败教训——记录失败原因，帮助后续 Agent 避免同类错误"""
+    if not error:
+        return False
+
+    batch_dir = DOCS_OUTPUT / batch_id
+    inputs = _find_inputs(batch_id, node_id, batch_dir)
+
+    # 提取错误的关键信息（截断）
+    error_summary = error[:1000]
+    if len(error) > 1000:
+        error_summary += "\n... (已截断)"
+
+    # 尝试读取失败节点的部分产出物
+    outputs = []
+    node_dir = batch_dir / node_id
+    if node_dir.exists():
+        for f in sorted(node_dir.rglob("*.md")) + sorted(node_dir.rglob("*.py")):
+            try:
+                content = f.read_text(encoding="utf-8")
+                outputs.append({
+                    "path": str(f.relative_to(batch_dir)),
+                    "content": content[:1000],
+                })
+            except Exception:
+                continue
+
+    skills = _load()
+    skills.append({
+        "skill_type": "failure",
+        "batch_id": batch_id,
+        "node_id": node_id,
+        "quality_score": quality_score,
+        "error": error_summary,
+        "inputs": inputs,
+        "outputs": outputs,
+    })
+
+    _prune_skills(skills, node_id, "failure", max_count=10)
+    _save(skills)
+    return True
+
+
+# ═══════════════════════════════════════════════════════════
+#  检索 & 注入
+# ═══════════════════════════════════════════════════════════
+
+def _prune_skills(skills: list, node_id: str, skill_type: str, max_count: int):
+    """限制每种类型/节点的技能数量"""
+    node_skills = [s for s in skills if s["node_id"] == node_id and s.get("skill_type") == skill_type]
+    if len(node_skills) > max_count:
+        node_skills.sort(key=lambda s: s.get("quality_score", 0), reverse=True)
+        kept_ids = {s["batch_id"] for s in node_skills[:max_count]}
+        for i in range(len(skills) - 1, -1, -1):
+            s = skills[i]
+            if (s["node_id"] == node_id and s.get("skill_type") == skill_type
+                    and s["batch_id"] not in kept_ids):
+                skills.pop(i)
 
 
 def _find_inputs(batch_id: str, node_id: str, batch_dir: Path) -> list:
     """找到节点的输入上下文"""
     inputs = []
 
-    # 尝试读取规格说明书
     status_file = batch_dir / "batch_status.json"
     if status_file.exists():
         try:
@@ -106,15 +179,13 @@ def _find_inputs(batch_id: str, node_id: str, batch_dir: Path) -> list:
             if spec_file:
                 spec_path = WORKSPACE_ROOT / "docs" / "待生成" / spec_file
                 if spec_path.exists():
-                    content = spec_path.read_text(encoding="utf-8")
                     inputs.append({
                         "type": "产品规格说明书",
-                        "content": content[:MAX_SKILL_CONTENT],
+                        "content": spec_path.read_text(encoding="utf-8")[:MAX_SKILL_CONTENT],
                     })
         except Exception:
             pass
 
-    # 尝试读取设计文档
     design_dir = batch_dir / "概要设计"
     if not design_dir.exists():
         design_dir = batch_dir / "design"
@@ -127,37 +198,85 @@ def _find_inputs(batch_id: str, node_id: str, batch_dir: Path) -> list:
         except Exception:
             continue
 
-    return inputs[:3]  # 最多 3 个
+    return inputs[:3]
 
 
-def get_examples(node_id: str, top_k: int = 2) -> str:
-    """获取指定节点类型的最佳范例（作为 prompt 注入）
-
-    Args:
-        node_id: 节点名（概要设计/代码生成/单元测试）
-        top_k: 返回前 K 个最佳范例
-
-    Returns:
-        格式化的范例文本，可直接注入 prompt；若无范例则返回空字符串
-    """
-    skills = _load()
-    node_skills = [s for s in skills if s["node_id"] == node_id]
-    if not node_skills:
+def _format_skills(skills: list, title: str) -> str:
+    """将技能列表格式化为 prompt 文本"""
+    if not skills:
         return ""
 
-    # 按质量评分排序，取最佳
-    node_skills.sort(key=lambda s: s["quality_score"], reverse=True)
-    best = node_skills[:top_k]
-
-    lines = ["\n## 参考范例（来自历史高质量批次，请参考其结构和质量水平）\n"]
-    for i, skill in enumerate(best, 1):
-        lines.append(f"### 范例 {i}（质量评分: {skill['quality_score']}%）\n")
+    lines = [f"\n## {title}\n"]
+    for i, skill in enumerate(skills, 1):
+        score = skill.get("quality_score", 0)
+        lines.append(f"### 参考 {i}（评分: {score}%）\n")
         for inp in skill.get("inputs", [])[:1]:
-            lines.append(f"**输入 — {inp['type']}**:\n```markdown\n{inp['content'][:1500]}\n```\n")
+            lines.append(f"**输入**:\n```markdown\n{inp['content'][:1500]}\n```\n")
         for out in skill.get("outputs", [])[:2]:
-            lines.append(f"**输出 — {out['path']}**:\n```\n{out['content'][:2000]}\n```\n")
-
+            lines.append(f"**输出**:\n```\n{out['content'][:2000]}\n```\n")
     return "\n".join(lines)
+
+
+def _format_failures(failures: list) -> str:
+    """将失败教训格式化为 prompt 文本"""
+    if not failures:
+        return ""
+
+    lines = ["\n## ⚠️ 历史失败教训（请务必避免以下错误）\n"]
+    for i, f in enumerate(failures, 1):
+        error = f.get("error", "未知错误")
+        lines.append(f"### 教训 {i}\n")
+        # 提取前 500 字符的错误信息
+        lines.append(f"**失败原因**: {error[:500]}\n")
+        for inp in f.get("inputs", [])[:1]:
+            lines.append(f"**当时输入**: \n```\n{inp['content'][:800]}\n```\n")
+        for out in f.get("outputs", [])[:1]:
+            if out.get("content"):
+                lines.append(f"**当时产出（可能不完整/有错误）**: \n```\n{out['content'][:1000]}\n```\n")
+
+    lines.append("**请确保你的输出不会出现上述错误。**\n")
+    return "\n".join(lines)
+
+
+def get_examples(node_id: str, top_k: int = 2, task_context: str = "") -> str:
+    """获取指定节点的最佳范例 + 失败教训
+
+    Args:
+        node_id: 节点名
+        top_k: 成功范例数量
+        task_context: 当前任务描述（用于过滤不相关的历史技能；为空就全取）
+    """
+    all_skills = _load()
+
+    # 成功范例
+    success = [s for s in all_skills if s["node_id"] == node_id and s.get("skill_type") != "failure"]
+
+    # 如果传了 task_context，按关键词重叠度排序（相关性 × 0.3 + 评分 × 0.7）
+    if task_context:
+        import re
+        current_words = set(re.findall(r'[\u4e00-\u9fff]{2,}', task_context))
+        if current_words:
+            def relevance(skill):
+                skill_words = set(skill.get("keywords", []))
+                overlap = len(current_words & skill_words) / max(len(current_words | skill_words), 1)
+                score = skill.get("quality_score", 0) or 0
+                return overlap * 0.3 + (score / 100) * 0.7
+            success.sort(key=relevance, reverse=True)
+        else:
+            success.sort(key=lambda s: s.get("quality_score", 0) or 0, reverse=True)
+    else:
+        success.sort(key=lambda s: s.get("quality_score", 0) or 0, reverse=True)
+
+    # 失败教训（不按相关性过滤——所有教训都有参考价值）
+    failures = [s for s in all_skills if s["node_id"] == node_id and s.get("skill_type") == "failure"]
+
+    result = []
+    if success:
+        result.append(_format_skills(success[:top_k], "参考范例（来自历史高质量批次，请参考其结构和质量水平）"))
+    if failures:
+        result.append(_format_failures(failures[:2]))
+
+    return "\n".join(result)
 
 
 def get_skill_count(node_id: str = "") -> int:

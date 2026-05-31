@@ -21,6 +21,8 @@ def _model(agent_model: str) -> str:
         _setup_local_qwen()
     if "kimi" in model:
         _setup_kimi()
+    if "glm" in model.lower():
+        _setup_glm()
     return model
 
 
@@ -33,10 +35,20 @@ def _setup_local_qwen():
 
 
 def _setup_kimi():
-    """为 Kimi Code API 设置自定义 Base URL"""
+    """为 Kimi Code API 设置 OpenAI 兼容环境变量"""
     import os
     if settings.moonshot_api_base:
-        os.environ["MOONSHOT_API_BASE"] = settings.moonshot_api_base
+        os.environ["OPENAI_API_BASE"] = settings.moonshot_api_base
+    if settings.moonshot_api_key:
+        os.environ["OPENAI_API_KEY"] = settings.moonshot_api_key
+
+
+def _setup_glm():
+    """为智谱 GLM 设置环境变量（zai/ 前缀，默认连 open.bigmodel.cn）"""
+    import os
+    if settings.zhipu_api_key:
+        os.environ["ZHIPU_API_KEY"] = settings.zhipu_api_key
+        os.environ["ZAI_API_KEY"] = settings.zhipu_api_key
 
 
 # ── Agent Definitions ────────────────────────────────────
@@ -163,9 +175,9 @@ def build_single_agent_crew(agent: Agent, task_description: str, expected_output
         return step_output
 
     task = Task(
-        description=task_description,
+        description=task_description.replace("{", "{{").replace("}", "}}"),
         agent=agent,
-        expected_output=expected_output,
+        expected_output=expected_output.replace("{", "{{").replace("}", "}}"),
         output_file=f"{output_dir}/_result.txt",
     )
     return Crew(
@@ -183,7 +195,12 @@ def build_design_crew(batch_id: str, spec_filename: str) -> Crew:
     output_dir = DOCS_OUTPUT / batch_id / "概要设计"
 
     agent = create_design_agent()
-    examples = get_examples("概要设计")
+    spec_content = ""
+    try:
+        spec_content = spec_path.read_text(encoding="utf-8")[:3000]
+    except Exception:
+        pass
+    examples = get_examples("概要设计", task_context=spec_content)
     task_desc = build_design_prompt(str(spec_path), str(output_dir), examples)
     expected = "完整的概要设计文档（Markdown），包含架构设计、模块划分、API定义、数据模型"
 
@@ -196,8 +213,8 @@ def build_codegen_crew(batch_id: str) -> Crew:
     output_dir = DOCS_OUTPUT / batch_id / "代码生成"
 
     agent = create_codegen_agent()
-    examples = get_examples("代码生成")
-    task_desc = build_codegen_prompt(str(design_doc), str(output_dir), examples)
+    # 不注入代码范例（含花括号导致 CrewAI 模板引擎崩溃）
+    task_desc = build_codegen_prompt(str(design_doc), str(output_dir))
     expected = "完整的项目源代码，语法正确可编译"
 
     return build_single_agent_crew(agent, task_desc, expected, str(output_dir))
@@ -210,8 +227,8 @@ def build_test_crew(batch_id: str) -> Crew:
     output_dir = DOCS_OUTPUT / batch_id / "单元测试"
 
     agent = create_test_agent()
-    examples = get_examples("单元测试")
-    task_desc = build_test_prompt(str(design_doc), str(code_dir), str(output_dir), examples)
+    # 不注入代码范例（含花括号导致 CrewAI 模板引擎崩溃）
+    task_desc = build_test_prompt(str(design_doc), str(code_dir), str(output_dir))
     expected = "完整的单元测试代码，覆盖率≥80%"
 
     return build_single_agent_crew(agent, task_desc, expected, str(output_dir))

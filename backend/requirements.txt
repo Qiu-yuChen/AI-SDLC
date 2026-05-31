@@ -28,3 +28,11 @@ flake8>=7.0.0
 radon>=6.0.0
 pytest-cov>=5.0.0
 pytest>=8.0.0
+
+# Document Parsing (多格式上传支持)
+python-docx>=1.1.0
+python-pptx>=1.0.0
+PyPDF2>=3.0.0
+openpyxl>=3.1.0
+beautifulsoup4>=4.12.0
+pyyaml>=6.0.0

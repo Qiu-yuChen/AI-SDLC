@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from config import DOCS_INPUT, DOCS_OUTPUT, SRC_OUTPUT, TEST_OUTPUT
 from orchestrator.state_manager import StateManager
 from orchestrator.engine import OrchestratorEngine
+from tools.document_tools import parse_document, get_file_type, SUPPORTED_EXTENSIONS
 
 router = APIRouter(tags=["batches"])
 
@@ -165,18 +166,74 @@ async def stop_batch(batch_id: str):
 
 @router.post("/upload-spec")
 async def upload_specification(file: UploadFile = File(...)):
-    """上传产品规格说明书"""
-    if not file.filename or not file.filename.endswith(".md"):
-        raise HTTPException(400, "仅支持 .md 格式")
+    """上传产品规格说明书（支持 .md / .docx / .pptx / .pdf 等 15+ 格式）
+
+    - .md 文件：直接存储
+    - 其他格式：自动解析 + AI 预处理 → 生成 .md 规格书
+    """
+    if not file.filename:
+        raise HTTPException(400, "文件名不能为空")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        allowed = ", ".join(SUPPORTED_EXTENSIONS.keys())
+        raise HTTPException(400, f"不支持的文件格式，仅支持: {allowed}")
 
     content = await file.read()
-    dest = DOCS_INPUT / file.filename
-    dest.write_bytes(content)
+
+    # 保存原始文件
+    original_dest = DOCS_INPUT / file.filename
+    original_dest.write_bytes(content)
+
+    # 如果已经是 Markdown，直接返回
+    if ext == ".md":
+        return {
+            "filename": file.filename,
+            "size": len(content),
+            "path": str(original_dest.relative_to(DOCS_INPUT.parent.parent)),
+            "file_type": "markdown",
+            "preprocessed": False,
+        }
+
+    # ── 非 Markdown 格式：解析 → AI 预处理 → 生成 .md ──
+    file_type = get_file_type(file.filename)
+    md_filename = Path(file.filename).stem + ".md"
+    md_dest = DOCS_INPUT / md_filename
+
+    # Step 1: 解析文档
+    parsed = parse_document(str(original_dest))
+
+    if "error" in parsed and not parsed.get("raw"):
+        raise HTTPException(500, f"文档解析失败: {parsed['error']}")
+
+    raw_content = parsed.get("raw", "")
+    doc_title = parsed.get("title", Path(file.filename).stem)
+
+    # Step 2: AI 预处理生成结构化规格书
+    from agents.spec_preprocessor import preprocess_document
+    spec_md = preprocess_document(
+        file_path=str(original_dest),
+        file_type=file_type,
+        doc_title=doc_title,
+        raw_content=raw_content,
+    )
+
+    # Step 3: 保存生成的 Markdown
+    md_dest.write_text(spec_md, encoding="utf-8")
 
     return {
-        "filename": file.filename,
-        "size": len(content),
-        "path": str(dest.relative_to(DOCS_INPUT.parent.parent)),
+        "filename": md_filename,
+        "original_filename": file.filename,
+        "size": len(spec_md.encode("utf-8")),
+        "path": str(md_dest.relative_to(DOCS_INPUT.parent.parent)),
+        "file_type": file_type,
+        "preprocessed": True,
+        "parsed_info": {
+            "title": doc_title,
+            "slide_count": parsed.get("slide_count"),
+            "paragraph_count": parsed.get("paragraph_count"),
+            "table_count": parsed.get("table_count"),
+        },
     }
 
 

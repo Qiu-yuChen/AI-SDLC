@@ -10,6 +10,12 @@ from .crew_factory import CREW_BUILDERS, build_design_crew
 from ws.manager import ws_manager
 
 
+class _SafeDict(dict):
+    """缺失 key 时返回原始 `{key}` 标记，避免 CrewAI 模板渲染 KeyError"""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
 class OrchestratorEngine:
     """Core pipeline orchestrator with auto/manual/retry modes"""
 
@@ -103,7 +109,7 @@ class OrchestratorEngine:
 
             # Execute with ReAct callback
             crew_output = crew.kickoff(
-                inputs={"batch_id": self.batch_id}
+                inputs=_SafeDict(batch_id=self.batch_id)
             )
 
             # Convert crew output to string
@@ -175,6 +181,13 @@ class OrchestratorEngine:
                 "name": node_name,
                 "error": error_msg,
             })
+
+            # 保存失败教训供后续批次参考
+            try:
+                from skills.skill_store import save_failure_lesson
+                save_failure_lesson(self.batch_id, node_id, error_msg)
+            except Exception:
+                pass
             raise
 
     # ── WebSocket Broadcast Helper ─────────────────────────

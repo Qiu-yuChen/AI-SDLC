@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     moonshot_api_key: str = ""   # Kimi = 月之暗面 (Moonshot)
+    zhipu_api_key: str = ""     # 智谱 GLM (ZhipuAI / BigModel)
 
     # LLM — 默认模型（所有 Agent 的兜底，未被 per-agent 覆盖时使用）
     primary_model: str = "deepseek/deepseek-chat"

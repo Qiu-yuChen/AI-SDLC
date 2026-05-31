@@ -1,0 +1,432 @@
+# 员工临时车辆预约程序 - 概要设计文档
+
+> **版本**: v1.0  
+> **日期**: 2025-06-30  
+> **状态**: 定稿  
+
+---
+
+## 1. 系统概述
+
+### 1.1 项目背景与目标
+
+**背景**：当前员工临时车辆入厂管理存在以下问题：
+- **人工抬杆效率低**：员工需下车刷卡验证身份后由保安手动抬杆，高峰期通行缓慢。
+- **无车辆档案记录**：临时车无系统登记，车主信息不可追溯。
+- **缺乏预约机制**：无法控制入厂车辆数量，易造成拥堵。
+- **离厂缴费不便**：依赖现场扫码缴费，流程繁琐。
+
+**目标**：构建一个面向公司员工的**临时车辆预约管理系统**，实现：
+- 员工在线预约临时入厂车辆；
+- 自动对接科拓车辆管理系统，实现**自动抬杆入厂**；
+- 支持提前缴费，提升离厂效率；
+- 实现车位配额管控、信息可追溯、操作便捷化；
+- 提升早高峰时段车辆通行效率。
+
+### 1.2 系统范围与边界
+
+**系统边界**：
+- **在本系统范围内**：员工临时车辆预约申请、取消、提前缴费、园区配置管理、实时车位显示、数据同步至科拓系统
+- **不在本系统范围内**：车辆入厂/离厂道闸硬件控制、第三方支付系统集成、车辆识别设备对接、与现有ERP系统数据同步
+
+### 1.3 用户角色定义
+
+| 角色 | 描述 | 权限范围 |
+|------|------|----------|
+| 员工 | 提交临时车辆预约申请、取消预约、提前缴费 | 可查看本园区剩余车位、提交预约申请、取消预约、提前缴费 |
+| 管理员 | 系统配置管理、查看历史预约记录、实时状态监控 | 可配置园区预约规则、设置每日最大预约车位数、开启/关闭预约功能、查看各园区预约数据 |
+
+---
+
+## 2. 系统架构设计
+
+### 2.1 整体架构图
+
+```mermaid
+graph TB
+    subgraph "表示层 (Presentation Layer)"
+        HTML[HTML5 静态页面]
+        JS[JavaScript / Fetch API]
+        CSS[CSS3 响应式样式]
+    end
+
+    subgraph "业务逻辑层 (Business Logic Layer)"
+        FASTAPI[Python FastAPI 应用]
+        AUTH[认证鉴权模块]
+        CONFIG[系统配置模块]
+        RESERVATION[预约管理模块]
+        PAYMENT[提前缴费模块]
+        CSV_UTILS[CSV 数据操作工具类]
+        LOG[操作日志记录]
+    end
+
+    subgraph "数据访问层 (Data Access Layer)"
+        CSV_STORE[CSV 文件存储]
+        PHOTO_DIR[照片文件目录]
+    end
+
+    subgraph "数据存储"
+        CONFIG_DB[(配置表 - config.csv)]
+        RESERVATION_DB[(预约表 - reservation.csv)]
+        PAYMENT_DB[(缴费表 - payment.csv)]
+        LOG_DB[(操作日志 - log.csv)]
+    end
+
+    HTML --> JS
+    JS -- HTTP/REST --> FASTAPI
+    FASTAPI --> AUTH
+    FASTAPI --> CONFIG
+    FASTAPI --> RESERVATION
+    FASTAPI --> PAYMENT
+    CONFIG --> CSV_UTILS
+    RESERVATION --> CSV_UTILS
+    PAYMENT --> CSV_UTILS
+    CSV_UTILS --> CONFIG_DB
+    CSV_UTILS --> RESERVATION_DB
+    CSV_UTILS --> PAYMENT_DB
+    CSV_UTILS --> LOG_DB
+    AUTH --> CSV_UTILS
+    LOG --> LOG_DB
+```
+
+### 2.2 分层说明
+
+| 层级 | 职责 | 技术方案 |
+|------|------|----------|
+| **表示层** | 用户界面渲染、交互处理、数据展示 | HTML5 + Vanilla JS + CSS3，无前端框架依赖 |
+| **业务逻辑层** | 请求接收、业务规则处理、权限校验、数据组装 | Python FastAPI (ASGI异步框架)，基于RESTful API设计 |
+| **数据访问层** | CSV文件读写、数据序列化/反序列化、文件存储操作 | Python csv 标准库 + 自定义DAO封装 |
+
+### 2.3 技术选型
+
+| 技术组件 | 选型 | 说明 |
+|----------|------|------|
+| **后端框架** | Python FastAPI | 高性能异步Web框架，支持RESTful API开发 |
+| **前端技术** | HTML5, CSS3, Vanilla JS | 轻量级、兼容性好，无需复杂框架 |
+| **数据存储** | CSV文件 | 模拟数据库，存储系统配置、预约记录、缴费信息 |
+| **部署方式** | 本地部署 | 无需云服务，支持在内网环境部署 |
+| **认证机制** | 本地用户登录（工号/密码） | 基于简单登录验证，不涉及JWT或OAuth |
+
+---
+
+## 3. 模块划分
+
+### 3.1 系统配置模块
+
+**功能描述**：
+- 支持潍坊、青岛、荣成、东莞四个园区选择
+- 可按园区、工作日/休息日分别设置每日最大预约车位数
+- 支持管理员开启/关闭预约功能
+- 实时展示当前剩余可用车位数量
+
+**职责**：
+- 存储园区配置信息（园区名称、是否开启预约、每日最大车位数）
+- 提供接口获取园区配置信息
+- 根据日期判断是否为工作日/节假日
+
+**依赖关系**：
+- 依赖于`reservation.csv`和`payment.csv`表进行数据验证
+- 依赖于`config.csv`表存储配置信息
+
+**接口定义**：
+- GET /api/config - 返回所有园区配置信息
+- POST /api/config - 更新园区配置（管理员专用）
+
+### 3.2 预约管理模块
+
+**功能描述**：
+- 员工提交临时车辆预约申请
+- 校验预约规则（日期、车牌、园区、配额）
+- 自动推送预约信息至科拓系统
+- 支持取消预约
+
+**职责**：
+- 处理用户输入（姓名、工号、手机号、车牌、园区、日期）
+- 校验输入合法性（格式、范围）
+- 检查当日预约配额是否充足
+- 生成预约记录并插入`reservation.csv`
+- 向科拓系统推送预约数据
+- 支持取消预约并释放配额
+
+**依赖关系**：
+- 依赖于`config.csv`获取配额信息
+- 依赖于`reservation.csv`存储和查询预约记录
+- 依赖于`payment.csv`判断是否已缴费
+
+**接口定义**：
+- POST /api/reservation - 提交预约申请
+- GET /api/reservation/available - 获取当前园区剩余可用车位
+- DELETE /api/reservation/{id} - 取消预约
+
+### 3.3 提前缴费模块
+
+**功能描述**：
+- 员工在预约后选择提前缴费
+- 系统生成缴费记录并插入`payment.csv`
+- 提供缴费成功反馈
+
+**职责**：
+- 处理缴费请求
+- 校验车牌号和预约信息一致性
+- 生成缴费记录（车牌、园区、时间、金额）
+- 更新预约状态为已缴费
+
+**依赖关系**：
+- 依赖于`reservation.csv`查找对应预约
+- 依赖于`payment.csv`存储缴费信息
+
+**接口定义**：
+- POST /api/payment - 提交提前缴费
+
+### 3.4 管理员后台模块
+
+**功能描述**：
+- 提供登录入口
+- 查看各园区预约配置
+- 查看历史预约记录
+- 查看实时状态（剩余车位、当前预约数）
+
+**职责**：
+- 提供管理员专用的管理界面
+- 支持查看和编辑园区配置
+- 提供数据统计功能
+
+**依赖关系**：
+- 依赖于`config.csv`, `reservation.csv`, `payment.csv`获取数据
+
+**接口定义**：
+- GET /api/admin/config - 获取所有园区配置
+- GET /api/admin/reservations - 获取历史预约记录
+- GET /api/admin/status - 获取实时状态（剩余车位、预约数）
+
+---
+
+## 4. API 接口设计
+
+### 4.1 系统配置接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| GET | /api/config | 无 | `{\"success\": true, \"data\": [{\"name\": \"潍坊\", \"max_daily\": 10, \"enabled\": true}, ...]}` |
+| POST | /api/config | `{\"name\": \"潍坊\", \"max_daily\": 10, \"enabled\": true}` | `{\"success\": true}` |
+
+### 4.2 预约管理接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| POST | /api/reservation | `{\"name\": \"张三\", \"employee_id\": \"E12345\", \"phone\": \"13800138000\", \"parking_area\": \"潍坊\", \"date\": \"2025-06-30\", \"plate_number\": \"鲁G12345\"}` | `{\"success\": true, \"reservation_id\": \"R20250630001\"}` |
+| GET | /api/reservation/available | `{\"parking_area\": \"潍坊\", \"date\": \"2025-06-30\"}` | `{\"success\": true, \"available\": 5}` |
+| DELETE | /api/reservation/{id} | `{\"id\": \"R20250630001\"}` | `{\"success\": true}` |
+
+### 4.3 提前缴费接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| POST | /api/payment | `{\"plate_number\": \"鲁G12345\", \"parking_area\": \"潍坊\", \"date\": \"2025-06-30\"}` | `{\"success\": true, \"payment_id\": \"P20250630001\"}` |
+
+### 4.4 管理员接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 |
+|------|------|----------|----------|
+| GET | /api/admin/config | 无 | `{\"success\": true, \"data\": [{\"name\": \"潍坊\", \"max_daily\": 10, \"enabled\": true}, ...]}` |
+| GET | /api/admin/reservations | `{\"parking_area\": \"潍坊\", \"date_from\": \"2025-06-01\", \"date_to\": \"2025-06-30\"}` | `{\"success\": true, \"data\": [{\"id\": \"R20250630001\", \"plate_number\": \"鲁G12345\", \"date\": \"2025-06-30\"}, ...]}` |
+| GET | /api/admin/status | 无 | `{\"success\": true, \"data\": {\"wfd\": {\"available\": 5, \"current\": 3}, \"qdg\": {\"available\": 8, \"current\": 2}}}` |
+
+---
+
+## 5. 数据模型设计
+
+### 5.1 配置表 (config.csv)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT (PK) | 自增主键 |
+| name | VARCHAR(20) | 园区名称（潍坊/青岛/荣成/东莞） |
+| max_daily | INT | 每日最大预约车位数 |
+| enabled | BOOLEAN | 是否开启预约功能（true/false） |
+
+### 5.2 预约表 (reservation.csv)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT (PK) | 自增主键 |
+| employee_id | VARCHAR(20) | 员工工号 |
+| name | VARCHAR(50) | 员工姓名 |
+| phone | VARCHAR(20) | 联系方式 |
+| plate_number | VARCHAR(20) | 车牌号 |
+| parking_area | VARCHAR(20) | 园区名称 |
+| date | DATE | 预约日期 |
+| status | ENUM('pending', 'cancelled') | 状态（待生效/已取消） |
+| created_at | DATETIME | 创建时间 |
+
+### 5.3 缴费表 (payment.csv)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT (PK) | 自增主键 |
+| plate_number | VARCHAR(20) | 车牌号 |
+| parking_area | VARCHAR(20) | 园区名称 |
+| date | DATE | 缴费日期 |
+| amount | DECIMAL(10,2) | 缴费金额（固定值，如 10.00） |
+| status | ENUM('success', 'failed') | 状态（成功/失败） |
+| created_at | DATETIME | 创建时间 |
+
+### 5.4 操作日志表 (log.csv)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT (PK) | 自增主键 |
+| action | VARCHAR(50) | 操作类型（如：预约提交、预约取消、缴费提交） |
+| user | VARCHAR(50) | 操作用户（姓名/工号） |
+| target | VARCHAR(100) | 目标对象（车牌/预约ID/园区） |
+| timestamp | DATETIME | 操作时间 |
+
+### 5.5 表间关系说明
+
+- `config.csv`：存储园区配置，为其他表提供配额和启用状态信息
+- `reservation.csv`：存储所有预约记录，与`config.csv`关联通过`parking_area`字段
+- `payment.csv`：存储缴费记录，与`reservation.csv`通过`plate_number`和`parking_area`关联
+- `log.csv`：记录所有操作，包含用户、操作类型、目标、时间
+
+### 5.6 示例数据
+
+**config.csv**:
+```csv
+id,name,max_daily,enabled
+1,"潍坊",10,true
+2,"青岛",8,false
+3,"荣成",12,true
+4,"东莞",5,true
+```
+
+**reservation.csv**:
+```csv
+id,employee_id,name,phone,plate_number,parking_area,date,status,created_at
+1,"E12345","张三","13800138000","鲁G12345","潍坊","2025-06-30","pending","2025-06-30 10:00:00"
+2,"E67890","李四","13900139000","鲁G67890","青岛","2025-06-30","pending","2025-06-30 10:05:00"
+```
+
+**payment.csv**:
+```csv
+id,plate_number,parking_area,date,amount,status,created_at
+1,"鲁G12345","潍坊","2025-06-30",10.00,"success","2025-06-30 10:15:00"
+```
+
+---
+
+## 6. 关键业务流程
+
+### 6.1 员工预约流程
+
+```mermaid
+sequenceDiagram
+    participant 员工
+    participant 系统
+    participant 科拓系统
+
+    员工->>系统: 选择园区、输入信息
+    系统->>系统: 校验输入（格式、配额）
+    系统->>系统: 检查当日剩余车位
+    系统->>系统: 生成预约ID
+    系统->>系统: 写入reservation.csv
+    系统->>科拓系统: 推送预约信息（车牌、园区、日期）
+    科拓系统->>系统: 接收并记录
+    系统->>员工: 显示预约成功
+```
+
+### 6.2 预约取消流程
+
+```mermaid
+sequenceDiagram
+    participant 员工
+    participant 系统
+
+    员工->>系统: 提交取消请求
+    系统->>系统: 校验权限（是否已提交）
+    系统->>系统: 找到对应预约记录
+    系统->>系统: 更新状态为\"cancelled\"
+    系统->>系统: 释放配额
+    系统->>系统: 写入log.csv（操作日志）
+    系统->>员工: 显示取消成功
+```
+
+### 6.3 提前缴费流程
+
+```mermaid
+sequenceDiagram
+    participant 员工
+    participant 系统
+
+    员工->>系统: 点击提前缴费
+    系统->>系统: 校验车牌和预约信息
+    系统->>系统: 生成缴费ID
+    系统->>系统: 写入payment.csv
+    系统->>员工: 显示缴费成功
+```
+
+---
+
+## 7. 非功能性需求
+
+### 7.1 性能指标
+- 页面响应时间 < 2秒（正常网络）
+- 支持并发用户数 ≥ 200
+- 数据量 ≤ 10万条时，查询延迟 < 1秒
+
+### 7.2 安全策略
+- 用户输入校验（防止SQL注入）
+- 预约信息加密存储（敏感字段如手机号）
+- 操作日志记录（所有关键操作）
+- 防止重复提交（通过唯一ID校验）
+- 本地用户登录（工号/密码）
+
+### 7.3 错误处理策略
+- 输入错误：提示用户填写完整信息
+- 配额不足：提示当日已满，无法预约
+- 网络错误：显示网络异常，尝试重试
+- 数据库错误：记录错误日志，返回内部错误
+- 重复提交：提示已存在相同预约
+
+---
+
+## 8. 附录
+
+### 8.1 术语说明
+- **临时车辆**：指公司员工非公务用车，临时进入厂区的车辆
+- **预约配额**：每个园区每天允许的临时车辆最大数量
+- **提前缴费**：在入厂前完成缴费，离厂时免收费用
+- **道闸系统**：科拓车辆管理系统，负责自动抬杆
+
+### 8.2 业务规则说明
+- 单次预约仅限一天、一个园区
+- 最多可预约未来7天
+- 不得超过当日预约上限
+- 同一辆牌同一天只能预约一个园区
+- 禁止已有内部车辆档案的车辆重复预约
+- 提前缴费后，离厂时无需支付费用
+
+### 8.3 数据存储说明
+- 所有数据以CSV文件形式存储在本地目录
+- 文件路径：`/data/reservation.csv`, `/data/config.csv`, `/data/payment.csv`, `/data/log.csv`
+- 文件格式：UTF-8编码，逗号分隔
+- 文件权限：仅系统用户可读写
+
+### 8.4 系统部署说明
+- 部署方式：本地部署，无需云服务
+- 环境要求：Python 3.8+, FastAPI, Python CSV模块
+- 部署步骤：
+  1. 创建项目目录
+  2. 创建CSV文件（初始为空）
+  3. 启动FastAPI服务
+  4. 访问前端页面
+
+### 8.5 未来扩展建议
+- 增加车辆识别系统对接
+- 增加移动端支持（H5或小程序）
+- 增加通知功能（邮件/短信提醒）
+- 增加统计报表（按园区、按日期分析）
+- 增加权限分级（如部门管理员）
+
+---
+
+> **设计文档结束**
