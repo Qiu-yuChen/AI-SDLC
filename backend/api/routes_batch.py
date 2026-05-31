@@ -1,16 +1,22 @@
 """Batch Management REST API"""
-import uuid
+import asyncio
+import io
 import json
+import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from config import DOCS_INPUT, DOCS_OUTPUT, SRC_OUTPUT, TEST_OUTPUT
 from orchestrator.state_manager import StateManager
 from orchestrator.engine import OrchestratorEngine
+from orchestrator.task_control import task_control
 from tools.document_tools import parse_document, get_file_type, SUPPORTED_EXTENSIONS
 
 router = APIRouter(tags=["batches"])
@@ -33,6 +39,9 @@ class BatchResponse(BaseModel):
 
 class NodeActionRequest(BaseModel):
     batch_id: str
+
+class BatchResumeRequest(BaseModel):
+    guidance: str = ""
 
 
 # ── Routes ────────────────────────────────────────────────
@@ -68,7 +77,7 @@ async def list_batches():
             if d.is_dir():
                 sf = d / "batch_status.json"
                 if sf.exists():
-                    status = json.loads(sf.read_text())
+                    status = json.loads(sf.read_text(encoding="utf-8"))
                     batches.append({
                         "batch_id": d.name,
                         "project_name": status.get("project_name", ""),
@@ -90,87 +99,92 @@ async def get_batch(batch_id: str):
 
 
 @router.post("/batches/{batch_id}/start")
-def start_batch(batch_id: str):
-    """启动自动执行（同步端点，在新线程中执行避免事件循环冲突）"""
-    import concurrent.futures
-
+async def start_batch(batch_id: str):
+    """启动自动执行（后台线程运行，立即返回）"""
     sm = StateManager(batch_id)
     status = sm.load()
     if not status:
         raise HTTPException(404, "批次不存在")
-    if status.get("status") in ("running", "completed"):
+    if status.get("status") in ("running", "completed", "stopped"):
         raise HTTPException(400, f"批次当前状态: {status.get('status')}")
 
-    def _run():
-        import asyncio
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        engine = OrchestratorEngine(batch_id)
-        engine.run_auto()
+    if task_control.is_active(batch_id):
+        raise HTTPException(409, "批次仍在运行中")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_run)
-        future.result(timeout=3600)
+    stop_event = task_control.start(batch_id)
+    engine = OrchestratorEngine(batch_id, stop_event=stop_event)
+    engine.set_loop(asyncio.get_running_loop())
+    asyncio.create_task(asyncio.to_thread(engine.run_auto))
+    return {"batch_id": batch_id, "status": "running"}
 
-    return {"batch_id": batch_id, "status": "completed"}
+
+@router.post("/batches/{batch_id}/stop")
+async def stop_batch(batch_id: str):
+    """Stop the current batch run."""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+    if status.get("status") not in ("created", "running"):
+        return {"batch_id": batch_id, "status": status.get("status")}
+
+    task_control.stop(batch_id)
+    stopped = sm.stop_batch("用户手动停止生成")
+    engine = OrchestratorEngine(batch_id)
+    engine.set_loop(asyncio.get_running_loop())
+    engine._broadcast("batch_stopped", {
+        "node_id": stopped.get("current_node"),
+        "name": stopped.get("current_node"),
+        "message": "用户手动停止生成",
+    })
+    return {"batch_id": batch_id, "status": "stopped"}
+
+
+@router.post("/batches/{batch_id}/resume")
+async def resume_batch(batch_id: str, req: BatchResumeRequest):
+    """Resume a stopped batch from the first unfinished node."""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+    if task_control.is_active(batch_id):
+        raise HTTPException(409, "批次仍在停止中，请稍后继续")
+    if status.get("status") not in ("stopped", "failed", "created"):
+        raise HTTPException(400, f"当前状态不支持继续: {status.get('status')}")
+
+    sm.resume_batch(req.guidance)
+    stop_event = task_control.start(batch_id)
+    engine = OrchestratorEngine(batch_id, stop_event=stop_event)
+    engine.set_loop(asyncio.get_running_loop())
+    engine._broadcast("batch_resumed", {
+        "message": "继续执行生成任务",
+        "guidance": req.guidance,
+    })
+    asyncio.create_task(asyncio.to_thread(engine.run_auto))
+    return {"batch_id": batch_id, "status": "running"}
 
 
 @router.post("/batches/{batch_id}/next")
 async def execute_next_node(batch_id: str):
     """手动模式：执行下一个节点"""
-    def _run():
-        import asyncio
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        engine = OrchestratorEngine(batch_id)
-        return engine.run_manual_step()
-
-    loop = __import__('asyncio').get_running_loop()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        return await loop.run_in_executor(executor, _run)
+    engine = OrchestratorEngine(batch_id)
+    engine.set_loop(asyncio.get_running_loop())
+    result = await asyncio.to_thread(engine.run_manual_step)
+    return result
 
 
 @router.post("/batches/{batch_id}/retry/{node_id}")
 async def retry_node(batch_id: str, node_id: str):
     """增量重试：重新执行指定节点"""
-    def _run():
-        import asyncio
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        engine = OrchestratorEngine(batch_id)
-        return engine.retry_node(node_id)
-
-    loop = __import__('asyncio').get_running_loop()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        result = await loop.run_in_executor(executor, _run)
+    engine = OrchestratorEngine(batch_id)
+    engine.set_loop(asyncio.get_running_loop())
+    result = await asyncio.to_thread(engine.retry_node, node_id)
     return result
-
-
-@router.post("/batches/{batch_id}/stop")
-async def stop_batch(batch_id: str):
-    """手动停止批次"""
-    sm = StateManager(batch_id)
-    status = sm.load()
-    if not status:
-        raise HTTPException(404, "批次不存在")
-
-    # Mark running nodes as failed
-    for node_id, node in status.get("nodes", {}).items():
-        if node.get("status") in ("running", "pending"):
-            sm.update_node(node_id, "failed", error="用户手动停止")
-
-    # Mark batch as failed
-    status["status"] = "failed"
-    status["updated_at"] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
-    sm._write_status(status)
-
-    return {"batch_id": batch_id, "status": "stopped", "message": "批次已手动停止"}
 
 
 @router.post("/upload-spec")
 async def upload_specification(file: UploadFile = File(...)):
-    """上传产品规格说明书（支持 .md / .docx / .pptx / .pdf 等 15+ 格式）
-
-    - .md 文件：直接存储
-    - 其他格式：自动解析 + AI 预处理 → 生成 .md 规格书
-    """
+    """上传产品规格说明书（支持 15+ 格式，非 .md 自动解析 + AI 预处理）"""
     if not file.filename:
         raise HTTPException(400, "文件名不能为空")
 
@@ -180,12 +194,9 @@ async def upload_specification(file: UploadFile = File(...)):
         raise HTTPException(400, f"不支持的文件格式，仅支持: {allowed}")
 
     content = await file.read()
-
-    # 保存原始文件
     original_dest = DOCS_INPUT / file.filename
     original_dest.write_bytes(content)
 
-    # 如果已经是 Markdown，直接返回
     if ext == ".md":
         return {
             "filename": file.filename,
@@ -195,30 +206,22 @@ async def upload_specification(file: UploadFile = File(...)):
             "preprocessed": False,
         }
 
-    # ── 非 Markdown 格式：解析 → AI 预处理 → 生成 .md ──
+    # 非 .md → 解析 + AI 预处理
     file_type = get_file_type(file.filename)
     md_filename = Path(file.filename).stem + ".md"
     md_dest = DOCS_INPUT / md_filename
 
-    # Step 1: 解析文档
     parsed = parse_document(str(original_dest))
-
     if "error" in parsed and not parsed.get("raw"):
         raise HTTPException(500, f"文档解析失败: {parsed['error']}")
 
-    raw_content = parsed.get("raw", "")
-    doc_title = parsed.get("title", Path(file.filename).stem)
-
-    # Step 2: AI 预处理生成结构化规格书
     from agents.spec_preprocessor import preprocess_document
     spec_md = preprocess_document(
         file_path=str(original_dest),
         file_type=file_type,
-        doc_title=doc_title,
-        raw_content=raw_content,
+        doc_title=parsed.get("title", Path(file.filename).stem),
+        raw_content=parsed.get("raw", ""),
     )
-
-    # Step 3: 保存生成的 Markdown
     md_dest.write_text(spec_md, encoding="utf-8")
 
     return {
@@ -229,7 +232,7 @@ async def upload_specification(file: UploadFile = File(...)):
         "file_type": file_type,
         "preprocessed": True,
         "parsed_info": {
-            "title": doc_title,
+            "title": parsed.get("title"),
             "slide_count": parsed.get("slide_count"),
             "paragraph_count": parsed.get("paragraph_count"),
             "table_count": parsed.get("table_count"),
@@ -254,3 +257,111 @@ async def get_node_outputs(batch_id: str, node_id: str):
                 "name": f.name,
             })
     return {"files": sorted(files, key=lambda x: x["path"])}
+
+
+# ── ZIP Export ───────────────────────────────────────────
+
+SKIP_EXPORT_FILES = {"batch_status.json", "execution_log.json", ".gitkeep"}
+
+
+def _safe_zip_name(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in value)
+    return safe.strip("._") or "artifacts"
+
+
+def _iter_artifact_files(batch_dir: Path) -> list:
+    files = []
+    for path in batch_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name in SKIP_EXPORT_FILES or path.suffix == ".zip":
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        files.append(path)
+    return sorted(files, key=lambda p: str(p.relative_to(batch_dir)))
+
+
+@router.get("/batches/{batch_id}/artifacts")
+async def get_batch_artifacts(batch_id: str):
+    """获取批次产物清单（按节点分组）"""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+
+    batch_dir = DOCS_OUTPUT / batch_id
+    if not batch_dir.exists():
+        raise HTTPException(404, "产物目录不存在")
+
+    grouped: dict[str, dict] = {}
+    total_size = 0
+    for file_path in _iter_artifact_files(batch_dir):
+        rel = file_path.relative_to(batch_dir)
+        parts = rel.parts
+        group_id = parts[0] if parts else "产物"
+        stat = file_path.stat()
+        total_size += stat.st_size
+        group = grouped.setdefault(group_id, {
+            "node_id": group_id, "count": 0, "size": 0, "files": [],
+        })
+        group["count"] += 1
+        group["size"] += stat.st_size
+        group["files"].append({
+            "path": str(rel), "name": file_path.name, "size": stat.st_size,
+        })
+
+    groups = sorted(grouped.values(), key=lambda item: item["node_id"])
+    return {
+        "batch_id": batch_id,
+        "project_name": status.get("project_name", ""),
+        "status": status.get("status", "unknown"),
+        "total_files": sum(g["count"] for g in groups),
+        "total_size": total_size,
+        "groups": groups,
+    }
+
+
+@router.get("/batches/{batch_id}/export")
+async def export_batch_artifacts(batch_id: str):
+    """一键下载所有产物为 ZIP"""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+
+    batch_dir = DOCS_OUTPUT / batch_id
+    if not batch_dir.exists():
+        raise HTTPException(404, "产物目录不存在")
+
+    files = _iter_artifact_files(batch_dir)
+    if not files:
+        raise HTTPException(404, "暂无可导出的产物")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest = {
+            "batch_id": batch_id,
+            "project_name": status.get("project_name", ""),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "file_count": len(files),
+            "files": [str(p.relative_to(batch_dir)) for p in files],
+        }
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        for file_path in files:
+            zf.write(file_path, arcname=str(file_path.relative_to(batch_dir)))
+
+    buffer.seek(0)
+    display_name = f"{_safe_zip_name(status.get('project_name') or batch_id)}_{batch_id}_artifacts.zip"
+    ascii_filename = f"{batch_id}_artifacts.zip"
+    encoded_filename = quote(display_name)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename={ascii_filename}; "
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
+        },
+    )

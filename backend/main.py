@@ -8,6 +8,7 @@ from config import settings, ROOT_DIR, WORKSPACE_ROOT
 from api.routes_batch import router as batch_router
 from api.routes_prompt import router as prompt_router
 from api.routes_ws import router as ws_router
+from api.routes_stt import router as stt_router
 
 app = FastAPI(
     title="AI-SDLC",
@@ -27,6 +28,7 @@ app.add_middleware(
 # API Routes
 app.include_router(batch_router, prefix="/api")
 app.include_router(prompt_router, prefix="/api")
+app.include_router(stt_router, prefix="/api")
 app.include_router(ws_router, prefix="/ws")
 
 # Static file serving (workspace output preview)

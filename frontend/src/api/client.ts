@@ -1,6 +1,6 @@
 /** API client — REST + WebSocket */
 
-import type { BatchStatus, BatchListItem, WsEvent } from '../types';
+import type { BatchStatus, BatchListItem, WsEvent, ScoringReport } from '../types';
 
 const BASE = '/api';
 
@@ -13,12 +13,7 @@ export async function uploadSpec(file: File): Promise<{
   file_type?: string;
   preprocessed?: boolean;
   original_filename?: string;
-  parsed_info?: {
-    title?: string;
-    slide_count?: number;
-    paragraph_count?: number;
-    table_count?: number;
-  };
+  parsed_info?: Record<string, unknown>;
 }> {
   const form = new FormData();
   form.append('file', file);
@@ -53,6 +48,20 @@ export async function startBatch(batchId: string): Promise<void> {
   if (!res.ok) throw new Error(await res.text());
 }
 
+export async function stopBatch(batchId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/stop`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function resumeBatch(batchId: string, guidance = ''): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ guidance }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 export async function executeNext(batchId: string): Promise<void> {
   const res = await fetch(`${BASE}/batches/${batchId}/next`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
@@ -63,9 +72,10 @@ export async function retryNode(batchId: string, nodeId: string): Promise<void> 
   if (!res.ok) throw new Error(await res.text());
 }
 
-export async function stopBatch(batchId: string): Promise<void> {
-  const res = await fetch(`${BASE}/batches/${batchId}/stop`, { method: 'POST' });
-  if (!res.ok) throw new Error(await res.text());
+export async function fetchScoringReport(batchId: string): Promise<ScoringReport> {
+  const res = await fetch(`/workspace/docs/已生成/${batchId}/质量评分/scoring_report.json`);
+  if (!res.ok) throw new Error('Report not found');
+  return res.json();
 }
 
 // ── WebSocket ────────────────────────────────────────
@@ -81,33 +91,21 @@ export function connectWs(
   const ws = new WebSocket(url);
 
   let closed = false;
-  let lastPong = Date.now();
-  let heartbeatTimer: ReturnType<typeof setInterval>;
-  let heartbeatTimeout: ReturnType<typeof setTimeout>;
 
   ws.onopen = () => {
-    lastPong = Date.now();
-
-    // Send ping every 10s
-    heartbeatTimer = setInterval(() => {
+    // Keep-alive ping
+    const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send('ping');
+      } else {
+        clearInterval(pingInterval);
       }
-    }, 10000);
+    }, 30000);
 
-    // Check if pong received within 35s
-    heartbeatTimeout = setTimeout(() => {
-      if (Date.now() - lastPong > 35000) {
-        ws.close();
-      }
-    }, 35000);
+    ws.addEventListener('close', () => clearInterval(pingInterval));
   };
 
   ws.onmessage = (msg) => {
-    if (msg.data === 'pong') {
-      lastPong = Date.now();
-      return;
-    }
     try {
       const event: WsEvent = JSON.parse(msg.data);
       onEvent(event);
@@ -117,8 +115,6 @@ export function connectWs(
   };
 
   ws.onclose = () => {
-    clearInterval(heartbeatTimer);
-    clearTimeout(heartbeatTimeout);
     if (!closed) {
       closed = true;
       onClose?.();

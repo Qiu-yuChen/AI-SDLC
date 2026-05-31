@@ -33,7 +33,7 @@ class StateManager:
             "batch_id": self.batch_id,
             "project_name": project_name,
             "spec_file": spec_file,
-            "status": "created",     # created | running | completed | failed
+            "status": "created",     # created | running | completed | failed | stopped
             "current_node": None,
             "mode": "auto",          # auto | manual
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -42,7 +42,7 @@ class StateManager:
                 node: {
                     "node_id": node,
                     "name": NODE_NAMES[node],
-                    "status": "pending",  # pending | running | completed | failed
+                    "status": "pending",  # pending | running | completed | failed | stopped
                     "started_at": None,
                     "finished_at": None,
                     "duration_seconds": None,
@@ -110,6 +110,13 @@ class StateManager:
                 node["error"] = error
             batch["status"] = "failed"
 
+        elif status == "stopped":
+            node["finished_at"] = now
+            if error:
+                node["error"] = error
+            batch["status"] = "stopped"
+            batch["current_node"] = node_id
+
         batch["updated_at"] = now
         self._write_status(batch)
 
@@ -120,7 +127,69 @@ class StateManager:
         logs.append(entry)
         self._write_log(logs)
 
+    def stop_batch(self, reason: str = "Stopped by user") -> dict:
+        """Mark the batch and its active node as stopped."""
+        batch = self.load()
+        if not batch:
+            return {}
+        now = datetime.now(timezone.utc).isoformat()
+        current_node = batch.get("current_node") or self.get_current_node()
+        if current_node and current_node in batch["nodes"]:
+            node = batch["nodes"][current_node]
+            if node["status"] in ("pending", "running", "stopped"):
+                node["status"] = "stopped"
+                node["finished_at"] = now
+                node["updated_at"] = now
+                node["error"] = reason
+        batch["status"] = "stopped"
+        batch["current_node"] = current_node
+        batch["updated_at"] = now
+        batch["stopped_at"] = now
+        self._write_status(batch)
+        return batch
+
+    def resume_batch(self, guidance: str = "") -> dict:
+        """Prepare a stopped batch to continue from the first unfinished node."""
+        batch = self.load()
+        if not batch:
+            return {}
+        spec_file = batch.get("spec_file", "")
+        if guidance and spec_file:
+            spec_path = DOCS_INPUT / spec_file
+            if spec_path.exists():
+                spec_path.write_text(
+                    f"{spec_path.read_text(encoding='utf-8').strip()}\n\n## 补充指引\n\n{guidance}",
+                    encoding="utf-8",
+                )
+        for node_id, node in batch.get("nodes", {}).items():
+            if node.get("status") in ("stopped",):
+                node["status"] = "pending"
+                node["error"] = None
+            if node.get("status") in ("running",):
+                node["status"] = "stopped"
+        batch["status"] = "created"
+        batch["current_node"] = self._first_unfinished_node(batch)
+        batch["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._write_status(batch)
+        return batch
+
+    def _first_unfinished_node(self, batch: dict) -> Optional[str]:
+        for n in NODE_ORDER:
+            node = batch.get("nodes", {}).get(n, {})
+            if node.get("status") in ("pending", "stopped", "failed"):
+                 return n
+        return None
+
     def get_current_node(self) -> Optional[str]:
+        """Get the next pending node"""
+        batch = self.load()
+        if not batch:
+            return None
+        for node in NODE_ORDER:
+            status = batch.get("nodes", {}).get(node, {}).get("status", "completed")
+            if status in ("pending", "running", "failed", "stopped"):
+                return node
+        return None
         """Get the next pending node"""
         batch = self.load()
         if not batch:

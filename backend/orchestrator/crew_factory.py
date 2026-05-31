@@ -1,21 +1,31 @@
 """CrewAI Crew Factory — Builds Agent Crews with ReAct tools"""
 
+from typing import Callable, Optional
+
 from crewai import Agent, Task, Crew, Process
 
 from config import DOCS_INPUT, DOCS_OUTPUT, settings
-from skills.skill_store import get_examples
 from agents.design_agent import build_design_prompt
 from agents.codegen_agent import build_codegen_prompt
 from agents.test_agent import build_test_prompt
 from tools.file_tools import read_file, write_file, list_directory
 from tools.code_tools import syntax_check, format_code_file
 from tools.quality_tools import validate_design_completeness
+from .task_control import task_control
 
 # ── LLM Config ──────────────────────────────────────────
 
+def _get_llm():
+    """Get LiteLLM-compatible LLM instance — uses primary_model as default,
+    but each agent factory can override with _model().
+    """
+    return settings.primary_model
+
+
 def _model(agent_model: str) -> str:
-    """返回某个 Agent 的 LLM 模型字符串，若未指定则用 primary_model
-    同时自动配置本地/自定义模型的运行环境"""
+    """返回 Agent 的 LLM 模型字符串 + 自动配置环境
+    - 用 .env 中 DESIGN_MODEL/CODEGEN_MODEL/TEST_MODEL 覆盖 primary_model
+    - 自动检测 qwen/kimi/glm 并设置对应的 API base"""
     model = agent_model or settings.primary_model
     if "qwen" in model:
         _setup_local_qwen()
@@ -27,7 +37,6 @@ def _model(agent_model: str) -> str:
 
 
 def _setup_local_qwen():
-    """为本地 Qwen vLLM 设置环境变量（本地部署无需认证）"""
     import os
     os.environ["OPENAI_API_BASE"] = settings.qwen_vllm_api_base
     if not os.environ.get("OPENAI_API_KEY"):
@@ -35,7 +44,6 @@ def _setup_local_qwen():
 
 
 def _setup_kimi():
-    """为 Kimi Code API 设置 OpenAI 兼容环境变量"""
     import os
     if settings.moonshot_api_base:
         os.environ["OPENAI_API_BASE"] = settings.moonshot_api_base
@@ -44,7 +52,6 @@ def _setup_kimi():
 
 
 def _setup_glm():
-    """为智谱 GLM 设置环境变量（zai/ 前缀，默认连 open.bigmodel.cn）"""
     import os
     if settings.zhipu_api_key:
         os.environ["ZHIPU_API_KEY"] = settings.zhipu_api_key
@@ -55,7 +62,6 @@ def _setup_glm():
 
 def create_design_agent() -> Agent:
     """概要设计 Agent — ReAct: 读规格书 → 分析 → 写设计文档"""
-    model = _model(settings.design_model)
     return Agent(
         role="资深系统架构师",
         goal="根据产品规格说明书，生成结构完整、可直接指导开发的概要设计文档",
@@ -81,17 +87,16 @@ def create_design_agent() -> Agent:
 - 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试
 - 不要传入空的路径或空的内容""",
         tools=[read_file, write_file, validate_design_completeness],
-        llm=model,
+        llm=_model(settings.design_model),
         verbose=settings.react_verbose,
         allow_delegation=False,
-        max_iter=settings.design_max_iter or settings.react_max_iter,
+        max_iter=settings.react_max_iter,
         max_rpm=10,  # rate limit safety
     )
 
 
 def create_codegen_agent() -> Agent:
     """代码生成 Agent — ReAct: 读设计文档 → 写代码 → 语法检查 → 修复"""
-    model = _model(settings.codegen_model)
     return Agent(
         role="资深全栈工程师",
         goal="根据概要设计文档，生成语法正确、结构清晰、可运行的源代码",
@@ -118,17 +123,16 @@ def create_codegen_agent() -> Agent:
 - 确保 JSON 格式正确——字符串中的引号、换行符需要正确转义
 - 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试""",
         tools=[read_file, write_file, list_directory, syntax_check, format_code_file],
-        llm=model,
+        llm=_model(settings.codegen_model),
         verbose=settings.react_verbose,
         allow_delegation=False,
-        max_iter=settings.codegen_max_iter or settings.react_max_iter,
+        max_iter=settings.react_max_iter,
         max_rpm=10,
     )
 
 
 def create_test_agent() -> Agent:
     """单元测试 Agent — ReAct: 读代码 → 写测试 → 运行 → 提升覆盖率"""
-    model = _model(settings.test_model)
     return Agent(
         role="资深测试工程师",
         goal="根据源代码和设计文档，生成覆盖率≥80%的高质量单元测试",
@@ -153,32 +157,93 @@ def create_test_agent() -> Agent:
 - content 参数必须包含完整的文件内容，不能为空字符串
 - 如果工具调用失败，仔细阅读错误信息，补全缺失参数后重试""",
         tools=[read_file, write_file, list_directory, syntax_check],
-        llm=model,
+        llm=_model(settings.test_model),
         verbose=settings.react_verbose,
         allow_delegation=False,
-        max_iter=settings.test_max_iter or settings.react_max_iter,
+        max_iter=settings.react_max_iter,
         max_rpm=10,
     )
 
 
 # ── Crew Builders ────────────────────────────────────────
 
-def build_single_agent_crew(agent: Agent, task_description: str, expected_output: str, output_dir: str) -> Crew:
+def _stringify_step_value(value) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if len(text) <= 1200 else text[:1200] + "..."
+
+
+def _extract_react_step(step_output) -> dict:
+    def pick(*names: str):
+        if isinstance(step_output, dict):
+            for name in names:
+                if step_output.get(name):
+                    return step_output.get(name)
+        for name in names:
+            value = getattr(step_output, name, None)
+            if value:
+                return value
+        return None
+
+    thought = pick("thought", "reasoning", "log", "llm_output")
+    action = pick("tool", "action", "tool_name", "tool_name_used")
+    action_input = pick("tool_input", "action_input", "args", "arguments")
+    observation = pick("observation", "result", "output", "final_answer")
+
+    step = {
+        "thought": _stringify_step_value(thought),
+        "action": _stringify_step_value(action),
+        "action_input": _stringify_step_value(action_input),
+        "observation": _stringify_step_value(observation),
+    }
+    cleaned = {key: value for key, value in step.items() if value}
+    if cleaned:
+        return cleaned
+
+    fallback = _stringify_step_value(step_output)
+    if fallback and " object at 0x" not in fallback:
+        return {
+            "observation": fallback,
+            "source": type(step_output).__name__,
+        }
+    return {}
+
+
+def build_single_agent_crew(
+    agent: Agent,
+    task_description: str,
+    expected_output: str,
+    output_dir: str,
+    batch_id: str,
+    node_id: str,
+    emit_step: Optional[Callable[[str, str, dict], None]] = None,
+) -> Crew:
     """Build a Crew with a single Agent+Task (per-node execution)"""
 
     def step_callback(step_output):
         """Intercept tool call errors and provide richer feedback"""
+        task_control.ensure_running(batch_id)
         if hasattr(step_output, 'tool_errors') and step_output.tool_errors:
             for err in step_output.tool_errors:
                 if hasattr(err, 'tool_name') and 'write_file' in str(err.tool_name):
                     print(f"[Tool Error Recovery] write_file failed: {err}")
+        if emit_step:
+            step = _extract_react_step(step_output)
+            if step:
+                emit_step(node_id, node_id, step)
+        task_control.ensure_running(batch_id)
         return step_output
 
+    # CrewAI can emit per-agent steps before the crew-level callback fires.
+    # Keep both hooks wired so the UI gets live progress instead of only a final answer.
+    agent.step_callback = step_callback
+
     task = Task(
-        description=task_description.replace("{", "{{").replace("}", "}}"),
+        description=task_description,
         agent=agent,
-        expected_output=expected_output.replace("{", "{{").replace("}", "}}"),
-        output_file=f"{output_dir}/_result.txt",
+        expected_output=expected_output,
+        output_file="_result.txt",
     )
     return Crew(
         agents=[agent],
@@ -189,53 +254,49 @@ def build_single_agent_crew(agent: Agent, task_description: str, expected_output
     )
 
 
-def build_design_crew(batch_id: str, spec_filename: str) -> Crew:
+def build_design_crew(batch_id: str, spec_filename: str, emit_step=None) -> Crew:
     """Build the Design Agent crew"""
     spec_path = DOCS_INPUT / spec_filename
     output_dir = DOCS_OUTPUT / batch_id / "概要设计"
 
     agent = create_design_agent()
-    spec_content = ""
-    try:
-        spec_content = spec_path.read_text(encoding="utf-8")[:3000]
-    except Exception:
-        pass
-    examples = get_examples("概要设计", task_context=spec_content)
-    task_desc = build_design_prompt(str(spec_path), str(output_dir), examples)
+    task_desc = build_design_prompt(str(spec_path), str(output_dir))
     expected = "完整的概要设计文档（Markdown），包含架构设计、模块划分、API定义、数据模型"
 
-    return build_single_agent_crew(agent, task_desc, expected, str(output_dir))
+    return build_single_agent_crew(agent, task_desc, expected, str(output_dir), batch_id, "概要设计", emit_step)
 
 
-def build_codegen_crew(batch_id: str) -> Crew:
+def build_codegen_crew(batch_id: str, emit_step=None) -> Crew:
     """Build the CodeGen Agent crew"""
     design_doc = DOCS_OUTPUT / batch_id / "概要设计" / "概要设计文档.md"
     output_dir = DOCS_OUTPUT / batch_id / "代码生成"
 
     agent = create_codegen_agent()
-    # 不注入代码范例（含花括号导致 CrewAI 模板引擎崩溃）
     task_desc = build_codegen_prompt(str(design_doc), str(output_dir))
     expected = "完整的项目源代码，语法正确可编译"
 
-    return build_single_agent_crew(agent, task_desc, expected, str(output_dir))
+    return build_single_agent_crew(agent, task_desc, expected, str(output_dir), batch_id, "代码生成", emit_step)
 
 
-def build_test_crew(batch_id: str) -> Crew:
+def build_test_crew(batch_id: str, emit_step=None) -> Crew:
     """Build the Test Agent crew"""
     design_doc = DOCS_OUTPUT / batch_id / "概要设计" / "概要设计文档.md"
     code_dir = DOCS_OUTPUT / batch_id / "代码生成"
     output_dir = DOCS_OUTPUT / batch_id / "单元测试"
 
     agent = create_test_agent()
-    # 不注入代码范例（含花括号导致 CrewAI 模板引擎崩溃）
     task_desc = build_test_prompt(str(design_doc), str(code_dir), str(output_dir))
     expected = "完整的单元测试代码，覆盖率≥80%"
 
-    return build_single_agent_crew(agent, task_desc, expected, str(output_dir))
+    return build_single_agent_crew(agent, task_desc, expected, str(output_dir), batch_id, "单元测试", emit_step)
 
 
 CREW_BUILDERS = {
     "概要设计": build_design_crew,
     "代码生成": build_codegen_crew,
     "单元测试": build_test_crew,
+    # 质量评分由 OrchestratorEngine._run_scoring() 直接执行，不走 CrewAI
+    "质量评分": lambda batch_id: (_ for _ in ()).throw(
+        RuntimeError("质量评分由 OrchestratorEngine 直接执行，不走 CrewAI")
+    ),
 }

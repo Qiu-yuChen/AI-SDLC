@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Sparkles, Copy, Check, Play, RefreshCw, X, Edit3, Eye } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Sparkles, Copy, Check, Play, RefreshCw, X, Edit3, Eye, Mic, MicOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { useVoiceInput } from '../hooks/useVoiceInput';
 
 interface ChatQA {
   question: string;
@@ -21,6 +22,12 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
   const [spec, setSpec] = useState('');
   const [qaList, setQaList] = useState<ChatQA[]>([]);
   const [round, setRound] = useState(0);
+
+  const handleVoiceResult = useCallback((transcript: string) => {
+    setInput((prev) => prev ? `${prev} ${transcript}` : transcript);
+  }, []);
+
+  const { isListening, isSupported, toggleListening } = useVoiceInput(handleVoiceResult);
   const [readinessScore, setReadinessScore] = useState(0);
   const [coverageSummary, setCoverageSummary] = useState('');
   const [isComplete, setIsComplete] = useState(false);
@@ -130,7 +137,7 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
             <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--text-secondary)' }}>
               用一句话描述你想要开发的应用
             </label>
-            <div className="flex mb-3 rounded-lg p-0.5" style={{ background: 'var(--main-secondary)' }}>
+            <div className="flex mb-2 rounded-lg p-0.5" style={{ background: 'var(--main-secondary)' }}>
               <button
                 onClick={() => setMode('standard')}
                 className={`flex-1 py-2 text-sm font-medium rounded-md transition ${mode === 'standard' ? 'card shadow-sm' : ''}`}
@@ -148,19 +155,35 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
                 西西弗斯模式
               </button>
             </div>
+            {mode === 'sisyphus' && (
+              <p className="text-xs mb-3" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                ✨ <b>西西弗斯模式</b>：AI 生成规格书后会自动追问细节（如权限、数据模型、异常流程等），
+                通过多轮对话帮助你逐步完善需求，直到质量达标。适合需求不明确的场景。
+              </p>
+            )}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="例如：我想做一个员工临时车辆预约系统，支持多园区、车牌识别和提前缴费..."
               className="input resize-none"
               rows={3}
               disabled={loading}
+              placeholder={isListening ? '🎙️ 正在聆听...' : '例如：我想做一个员工临时车辆预约系统，支持多园区、车牌识别和提前缴费...'}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   handleOptimize();
                 }
               }}
             />
+            {isSupported && (
+              <button
+                onClick={toggleListening}
+                disabled={loading}
+                className="btn mt-2 text-sm"
+                style={isListening ? { color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' } : {}}
+              >
+                {isListening ? <><MicOff className="w-4 h-4" /> 停止录音</> : <><Mic className="w-4 h-4" /> 语音输入</>}
+              </button>
+            )}
             <button
               onClick={handleOptimize}
               disabled={!input.trim() || loading}

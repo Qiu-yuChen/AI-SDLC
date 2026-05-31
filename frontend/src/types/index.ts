@@ -1,7 +1,7 @@
 /** Shared types for API and WebSocket events */
 
-export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed';
-export type BatchState = 'created' | 'running' | 'completed' | 'failed';
+export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+export type BatchState = 'created' | 'running' | 'completed' | 'failed' | 'stopped';
 
 export interface NodeInfo {
   node_id: string;
@@ -49,7 +49,12 @@ export type WsEventType =
   | 'node_failed'
   | 'react_step'
   | 'log'
-  | 'quality_review';
+  | 'quality_review'
+  | 'batch_stopped'
+  | 'batch_resumed'
+  | 'node_stopped'
+  | 'scoring_completed'
+  | 'poster_ready';
 
 export interface WsEvent {
   type: WsEventType;
@@ -62,5 +67,17 @@ export interface WsEvent {
   error?: string;
   step?: ReActStep;
   message?: string;
+  path?: string;
   timestamp?: string;
+}
+
+export interface ScoringReport {
+  composite_score: number;
+  stars: string;
+  design_score: number;
+  code_score: number;
+  test_score: number;
+  repozero_score: number;
+  grade?: string;
+  details?: Record<string, unknown>;
 }

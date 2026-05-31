@@ -25,5 +25,8 @@ Thumbs.db
 workspace/docs/已生成/*
 !workspace/docs/已生成/.gitkeep
 
+# Model files
+backend/models/
+
 # Logs
 *.log
