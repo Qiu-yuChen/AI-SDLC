@@ -69,7 +69,7 @@ bash scripts/run.sh
 cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8808
 
 # 前端（新终端）
 cd frontend
@@ -78,8 +78,8 @@ npm run dev
 ```
 
 访问：
-- 前端：http://localhost:5173
-- API 文档：http://localhost:8000/docs
+- 前端：http://localhost:3303
+- API 文档：http://localhost:8808/docs
 
 ---
 

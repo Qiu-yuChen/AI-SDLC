@@ -6,7 +6,20 @@ const BASE = '/api';
 
 // ── REST ─────────────────────────────────────────────
 
-export async function uploadSpec(file: File): Promise<{ filename: string; size: number }> {
+export async function uploadSpec(file: File): Promise<{
+  filename: string;
+  size: number;
+  path?: string;
+  file_type?: string;
+  preprocessed?: boolean;
+  original_filename?: string;
+  parsed_info?: {
+    title?: string;
+    slide_count?: number;
+    paragraph_count?: number;
+    table_count?: number;
+  };
+}> {
   const form = new FormData();
   form.append('file', file);
   const res = await fetch(`${BASE}/upload-spec`, { method: 'POST', body: form });

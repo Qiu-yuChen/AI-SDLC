@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Upload, Play, FileText, Sparkles, Zap } from 'lucide-react';
+import { Upload, Play, FileText, Sparkles, Zap, FileType } from 'lucide-react';
 import { uploadSpec, createBatch, startBatch } from '../api/client';
 import type { BatchListItem } from '../types';
 
@@ -31,7 +31,11 @@ export function BatchCreator({ onCreated, batches, onSelectBatch, onOpenOptimize
       if (mode === 'upload' && file) {
         const uploadResult = await uploadSpec(file);
         specFilename = uploadResult.filename;
-        if (!projectName) setProjectName(file.name.replace('.md', ''));
+        if (!projectName) {
+          // Strip extension for default project name
+          const baseName = file.name.replace(/\.[^.]+$/, '');
+          setProjectName(baseName);
+        }
       } else if (mode === 'text' && specText.trim()) {
         const blob = new Blob([specText], { type: 'text/markdown' });
         const textFile = new File([blob], `spec_${Date.now()}.md`, { type: 'text/markdown' });
@@ -123,29 +127,57 @@ export function BatchCreator({ onCreated, batches, onSelectBatch, onOpenOptimize
             <input
               ref={fileInputRef}
               type="file"
-              accept=".md"
+              accept=".md,.docx,.pptx,.pdf,.xlsx,.csv,.txt,.html,.htm,.json,.xml,.yaml,.yml,.rst,.org,.adoc,.log"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) {
                   setFile(f);
-                  setProjectName(f.name.replace('.md', ''));
+                  const baseName = f.name.replace(/\.[^.]+$/, '');
+                  setProjectName(baseName);
                   setError('');
                 }
               }}
             />
             {file ? (
               <div>
-                <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: 'var(--accent)' }} />
+                {file.name.endsWith('.docx') ? (
+                  <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: '#3b82f6' }} />
+                ) : file.name.endsWith('.pptx') ? (
+                  <FileType className="w-10 h-10 mx-auto mb-2" style={{ color: '#f59e0b' }} />
+                ) : file.name.endsWith('.pdf') ? (
+                  <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: '#ef4444' }} />
+                ) : file.name.endsWith('.xlsx') || file.name.endsWith('.csv') ? (
+                  <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: '#10b981' }} />
+                ) : file.name.endsWith('.html') || file.name.endsWith('.htm') ? (
+                  <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: '#8b5cf6' }} />
+                ) : file.name.endsWith('.json') || file.name.endsWith('.xml') || file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? (
+                  <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: '#06b6d4' }} />
+                ) : (
+                  <FileText className="w-10 h-10 mx-auto mb-2" style={{ color: 'var(--accent)' }} />
+                )}
                 <p className="text-base font-medium">{file.name}</p>
                 <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                   {(file.size / 1024).toFixed(1)} KB
+                  {!file.name.endsWith('.md') && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded text-xs"
+                      style={{ background: 'rgba(16,163,127,0.1)', color: 'var(--accent)' }}>
+                      AI 自动解析
+                    </span>
+                  )}
                 </p>
               </div>
             ) : (
               <div>
                 <Upload className="w-10 h-10 mx-auto mb-2" style={{ color: 'var(--text-muted)' }} />
-                <p style={{ color: 'var(--text-muted)' }}>拖拽或点击上传 Markdown 规格说明书</p>
+                <p style={{ color: 'var(--text-muted)' }}>拖拽或点击上传规格说明书</p>
+                <p className="text-xs mt-2 leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: 400, margin: '0 auto' }}>
+                  支持格式：Markdown (.md) · Word (.docx) · PPT (.pptx) · PDF (.pdf)<br />
+                  Excel (.xlsx) · CSV · TXT · HTML · JSON · XML · YAML · RST · Org · AsciiDoc
+                </p>
+                <p className="text-xs mt-1" style={{ color: 'var(--accent)', opacity: 0.8 }}>
+                  Office / PDF 等非 Markdown 文件将自动由 AI 转为结构化规格书
+                </p>
               </div>
             )}
           </div>
