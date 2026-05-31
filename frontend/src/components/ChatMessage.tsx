@@ -376,9 +376,9 @@ export function ChatMessage({ message, batchId, onFilePreview }: { message: Chat
           <div className="my-2 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
             <div className="flex items-center gap-1 px-3 py-2 text-xs" style={{ background: 'var(--main-secondary)', color: 'var(--text-muted)' }}>
               🖼️ 交付海报
-              <a href={`/workspace/${message.posterUrl}`} target="_blank" className="ml-auto" style={{ color: 'var(--accent)' }}>原图</a>
+              <a href={`/workspace/docs/已生成/${batchId}/${message.posterUrl}`} target="_blank" download className="ml-auto" style={{ color: 'var(--accent)' }}>下载</a>
             </div>
-            <img src={`/workspace/${message.posterUrl}`} alt="交付海报" style={{ width: '100%', display: 'block' }} />
+            <img src={`/workspace/docs/已生成/${batchId}/${message.posterUrl}`} alt="交付海报" style={{ width: '100%', display: 'block' }} />
           </div>
         )}
       </div>

@@ -74,10 +74,10 @@ export interface WsEvent {
 export interface ScoringReport {
   composite_score: number;
   stars: string;
-  design_score: number;
-  code_score: number;
-  test_score: number;
-  repozero_score: number;
+  design_score: number | { total_score: number };
+  code_score: number | { total_score: number };
+  test_score: number | { total_score: number };
+  repozero_score: number | { total_score: number };
   grade?: string;
   details?: Record<string, unknown>;
 }

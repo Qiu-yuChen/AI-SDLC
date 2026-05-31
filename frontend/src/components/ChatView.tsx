@@ -365,6 +365,7 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
         if (scoringNode?.status === 'completed') {
           try {
             const report = await fetchScoringReport(bid);
+            const num = (v: unknown) => Math.round(typeof v === 'number' ? v : (v as Record<string, unknown>)?.total_score as number || 0);
             if (!cancelled && mountedRef.current) {
               upsertSingleMessage({
                 id: nextId(),
@@ -372,12 +373,12 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
                 type: 'scoring_report',
                 content: '质量评分已完成',
                 scoring: {
-                  composite_score: Math.round(report.composite_score),
+                  composite_score: num(report.composite_score),
                   stars: '',
-                  design_score: Math.round(report.design_score ?? 0),
-                  code_score: Math.round(report.code_score ?? 0),
-                  test_score: Math.round(report.test_score ?? 0),
-                  repozero_score: Math.round(report.repozero_score ?? 0),
+                  design_score: num(report.design_score),
+                  code_score: num(report.code_score),
+                  test_score: num(report.test_score),
+                  repozero_score: num(report.repozero_score),
                 },
                 timestamp: now(),
               }, 'scoring_report');
@@ -516,18 +517,19 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
           fetchScoringReport(currentBatchId)
             .then((report) => {
               if (!mountedRef.current) return;
+              const num = (v: unknown) => Math.round(typeof v === 'number' ? v : (v as Record<string, unknown>)?.total_score as number || 0);
               upsertSingleMessage({
                 id: nextId(),
                 role: 'assistant',
                 type: 'scoring_report',
                 content: '质量评分已完成',
                 scoring: {
-                  composite_score: Math.round(report.composite_score),
+                  composite_score: num(report.composite_score),
                   stars: '',
-                  design_score: Math.round(report.design_score ?? 0),
-                  code_score: Math.round(report.code_score ?? 0),
-                  test_score: Math.round(report.test_score ?? 0),
-                  repozero_score: Math.round(report.repozero_score ?? 0),
+                  design_score: num(report.design_score),
+                  code_score: num(report.code_score),
+                  test_score: num(report.test_score),
+                  repozero_score: num(report.repozero_score),
                 },
                 timestamp: now(),
               }, 'scoring_report');
