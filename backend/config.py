@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # LLM — Kimi Code API 专用 Base URL（Kimi Code API 与标准 Moonshot 端点不同）
     moonshot_api_base: str = ""
 
+    # WeChat Official Account
+    wechat_token: str = "ai_sdlc_token"
+    wechat_aes_key: str = ""
+
     # LLM — 公共参数
     llm_temperature: float = 0.3
     llm_max_tokens: int = 8192

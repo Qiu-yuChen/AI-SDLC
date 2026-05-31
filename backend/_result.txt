@@ -1,1808 +1,350 @@
-我已完成所有源代码文件的生成。以下是完整的项目源代码：
+# 员工临时车辆预约程序概要设计文档
 
----
+## 1. 系统概述
 
-## 项目结构
+### 1.1 项目背景与目标
 
+**项目背景**：当前员工临时车辆入厂管理存在以下问题：
+- 人工抬杆效率低：员工需下车刷卡验证身份后由保安手动抬杆，高峰期通行缓慢。
+- 无车辆档案记录：临时车无系统登记，车主信息不可追溯。
+- 缺乏预约机制：无法控制入厂车辆数量，易造成拥堵。
+- 离厂缴费不便：依赖现场扫码缴费，流程繁琐。
+
+**项目目标**：构建一个面向公司员工的**临时车辆预约管理系统**，实现：
+- 员工在线预约临时入厂车辆；
+- 自动对接科拓车辆管理系统，实现**自动抬杆入厂**；
+- 支持提前缴费，提升离厂效率；
+- 实现车位配额管控、信息可追溯、操作便捷化；
+- 提升早高峰时段车辆通行效率。
+
+### 1.2 系统范围与边界
+
+**系统范围**：
+- 员工端：在线提交临时车辆预约申请、查看剩余车位、取消预约、提前缴费。
+- 后台管理端：配置园区预约规则、查看历史预约记录、监控实时状态。
+- 数据同步：与科拓系统进行数据交互，实现预约信息和缴费信息的推送。
+
+**系统边界**：
+- 不涉及车辆道闸硬件控制（仅负责数据推送）。
+- 不涉及财务系统直接对接，缴费金额为模拟值。
+- 不涉及员工身份认证系统（前端使用工号/手机号登录，后端校验工号有效性）。
+
+### 1.3 用户角色定义
+
+| 角色 | 权限与功能 |
+|------|------------|
+| **普通员工** | 提交预约申请、查看剩余车位、取消预约、提前缴费、查看个人预约记录 |
+| **管理员** | 配置园区预约规则（包括每日最大配额、是否开启预约）、查看所有历史预约记录、查看实时状态、管理园区信息 |
+
+## 2. 系统架构设计
+
+### 2.1 整体架构图
+
+```mermaid
+graph TD
+    A[前端页面] --> B[API网关]
+    B --> C[后端服务]
+    C --> D[CSV数据库]
+    C --> E[科拓系统接口]
+    D --> F[配置表]
+    D --> G[预约表]
+    D --> H[缴费表]
+    E --> G
+    E --> H
+
+    style A fill:#f9f,stroke:#333
+    style B fill:#bbf,stroke:#333
+    style C fill:#ff9,stroke:#333
+    style D fill:#9f9,stroke:#333
+    style E fill:#f9f,stroke:#333
+    style F fill:#9f9,stroke:#333
+    style G fill:#9f9,stroke:#333
+    style H fill:#9f9,stroke:#333
 ```
-/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260531_154924_af48cc/代码生成/
-├── app.py                 # FastAPI 主入口
-├── models.py              # 数据模型（CSV 读写封装）
-├── routes.py              # API 路由
-├── services.py            # 业务逻辑层
-├── utils.py               # 工具函数
-├── data/                  # CSV 数据文件目录
-│   ├── parks.csv          # 园区表
-│   ├── reservations.csv   # 预约记录表
-│   └── payments.csv       # 缴费记录表
-├── static/
-│   └── index.html         # 前端页面
-└── requirements.txt       # 依赖清单
+
+### 2.2 分层说明
+
+**表示层（Presentation Layer）**：
+- 前端页面（HTML + JavaScript）
+- 负责用户交互、数据展示、表单提交
+
+**业务逻辑层（Business Logic Layer）**：
+- FastAPI 后端服务
+- 负责接收请求、校验参数、执行业务逻辑（如预约规则校验、配额判断、数据同步）
+- 提供 RESTful API 接口
+
+**数据访问层（Data Access Layer）**：
+- 使用 CSV 文件模拟数据库
+- 包含以下表结构：
+  - `config.csv`：园区配置表（园区名称、每日配额、是否开启预约）
+  - `reservation.csv`：预约记录表（车牌号、园区、预约时间、状态、用户信息）
+  - `payment.csv`：缴费记录表（车牌号、园区、缴费时间、金额、状态）
+
+### 2.3 技术选型
+
+- **后端框架**：Python FastAPI（高性能、异步支持、RESTful API）
+- **前端技术**：HTML + JavaScript（静态页面，无需复杂框架）
+- **数据存储**：CSV 文件（模拟数据库，符合赛题要求）
+- **部署方式**：本地部署，支持在浏览器中访问
+- **数据同步**：通过 HTTP 请求模拟与科拓系统的接口交互（POST 请求推送数据）
+
+## 3. 模块划分
+
+| 模块 | 功能描述 | 职责 | 依赖关系 |
+|------|---------|------|----------|
+| **系统配置模块** | 管理员配置园区预约规则、查看实时状态 | - 配置园区名称、每日最大配额、是否开启预约<br>- 提供实时剩余车位显示 | 依赖 `config.csv` 表，调用 `get_remaining_slots()` 函数 |
+| **预约申请模块** | 员工提交临时车辆预约申请 | - 校验输入信息（姓名、工号、手机号、车牌号、时间）<br>- 校验是否超过配额<br>- 生成预约记录并推送至科拓系统 | 依赖 `reservation.csv` 表，调用 `create_reservation()` 函数，调用 `send_to_ketuo()` 函数 |
+| **预约取消模块** | 员工取消已提交的预约申请 | - 根据车牌号和时间查询记录<br>- 更新状态为“已取消”<br>- 释放配额 | 依赖 `reservation.csv` 表，调用 `cancel_reservation()` 函数 |
+| **提前缴费模块** | 员工提前缴费，标记为已缴费 | - 提交缴费请求<br>- 生成缴费记录并写入 `payment.csv` 表 | 依赖 `payment.csv` 表，调用 `record_payment()` 函数 |
+| **管理员后台模块** | 管理员登录、查看配置、历史记录、实时状态 | - 提供登录接口<br>- 查看各园区配置<br>- 查看历史预约记录<br>- 查看实时状态 | 依赖 `config.csv`, `reservation.csv`, `payment.csv` 表 |
+
+> **模块间依赖关系**：
+> - 预约申请模块依赖系统配置模块获取配额信息
+> - 预约取消模块依赖预约申请模块获取预约记录
+> - 提前缴费模块依赖预约申请模块获取车牌号和园区
+> - 所有模块共享 `reservation.csv` 和 `payment.csv` 表
+
+## 4. API 接口设计
+
+### 4.1 前端请求接口
+
+| 方法 | 路径 | 请求参数 | 响应格式 | 说明 |
+|------|------|----------|----------|------|
+| `GET` | `/api/config` | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"cities\": [\"潍坊\", \"青岛\", \"荣成\", \"东莞\"], \"rules\": {\"潍坊\": {\"daily_limit\": 50, \"enabled\": true}, ...}}}` | 获取园区配置信息 |
+| `GET` | `/api/reservation/available` | `city`（园区名）、`date`（日期） | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"available_slots\": 25}}` | 获取指定园区某天剩余可用车位 |
+| `POST` | `/api/reservation/create` | `name`, `work_number`, `phone`, `plate_number`, `city`, `date` | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"reservation_id\": \"12345\"}}` | 提交临时车辆预约申请 |
+| `POST` | `/api/reservation/cancel` | `plate_number`, `city`, `date` | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"message\": \"预约已取消\"}}` | 取消已提交的预约申请 |
+| `POST` | `/api/payment/record` | `plate_number`, `city`, `amount` | `{\"code\": 0, \"msg\": \"success\", \"data\": {\"payment_id\": \"67890\"}}` | 提前缴费记录 |
+| `GET` | `/api/admin/reservations` | 无 | `{\"code\": 0, \"msg\": \"success\", \"data\": [{\"plate\": \"鲁G12345\", \"city\": \"潍坊\", \"date\": \"2024-05-20\", \"status\": \"success\"}]}` | 获取所有历史预约记录 |
+
+### 4.2 示例请求与响应
+
+#### 示例 1：获取园区配置
+
+**请求**：
+```http
+GET /api/config HTTP/1.1
+Host: localhost:8000
 ```
 
----
-
-## 语法检查结果
-
-✅ utils.py - 语法检查通过  
-✅ models.py - 语法检查通过  
-✅ services.py - 语法检查通过  
-✅ routes.py - 语法检查通过  
-✅ app.py - 语法检查通过
-
----
-
-## 源代码文件
-
-### 1. utils.py - 工具函数模块
-
-```python
-"""
-工具函数模块
-提供时间处理、ID生成、数据校验等通用功能
-"""
-
-import re
-from datetime import datetime, timedelta
-from typing import Tuple, Optional
-
-
-def generate_reservation_id(date_str: str, sequence: int) -> str:
-    """
-    生成预约ID
-    
-    Args:
-        date_str: 日期字符串，格式 YYYY-MM-DD
-        sequence: 序号
-        
-    Returns:
-        预约ID，格式 RYYYYMMDD001
-    """
-    date_part = date_str.replace("-", "")
-    return f"R{date_part}{sequence:03d}"
-
-
-def generate_payment_id(date_str: str, sequence: int) -> str:
-    """
-    生成缴费ID
-    
-    Args:
-        date_str: 日期字符串，格式 YYYY-MM-DD
-        sequence: 序号
-        
-    Returns:
-        缴费ID，格式 PYYYYMMDD001
-    """
-    date_part = date_str.replace("-", "")
-    return f"P{date_part}{sequence:03d}"
-
-
-def get_current_datetime() -> str:
-    """
-    获取当前时间字符串
-    
-    Returns:
-        当前时间字符串，格式 YYYY-MM-DD HH:MM:SS
-    """
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def get_current_date() -> str:
-    """
-    获取当前日期字符串
-    
-    Returns:
-        当前日期字符串，格式 YYYY-MM-DD
-    """
-    return datetime.now().strftime("%Y-%m-%d")
-
-
-def validate_license_plate(license_plate: str) -> Tuple[bool, str]:
-    """
-    校验车牌号格式
-    
-    Args:
-        license_plate: 车牌号
-        
-    Returns:
-        (是否有效, 错误信息)
-    """
-    # 普通车牌格式：省份简称+字母+5位数字或字母
-    # 新能源车牌格式：省份简称+字母+6位数字或字母
-    pattern = r'^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼使领][A-Z][A-Z0-9]{5,6}$'
-    
-    if not license_plate:
-        return False, "车牌号不能为空"
-    
-    if re.match(pattern, license_plate):
-        return True, ""
-    
-    return False, "车牌格式不正确，请按鲁G12345或鲁G12345E格式输入"
-
-
-def validate_phone(phone: str) -> Tuple[bool, str]:
-    """
-    校验手机号格式
-    
-    Args:
-        phone: 手机号
-        
-    Returns:
-        (是否有效, 错误信息)
-    """
-    pattern = r'^1[3-9]\d{9}$'
-    
-    if not phone:
-        return False, "手机号不能为空"
-    
-    if re.match(pattern, phone):
-        return True, ""
-    
-    return False, "手机号格式不正确"
-
-
-def validate_reservation_date(date_str: str) -> Tuple[bool, str]:
-    """
-    校验预约日期
-    
-    Args:
-        date_str: 预约日期字符串，格式 YYYY-MM-DD
-        
-    Returns:
-        (是否有效, 错误信息)
-    """
-    try:
-        reservation_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        today = datetime.now().date()
-        max_date = today + timedelta(days=7)
-        
-        if reservation_date < today:
-            return False, "预约日期不能早于今天"
-        
-        if reservation_date > max_date:
-            return False, "只能预约未来7天内"
-        
-        return True, ""
-    except ValueError:
-        return False, "日期格式不正确，请使用 YYYY-MM-DD 格式"
-
-
-def is_workday(date_str: str) -> bool:
-    """
-    判断是否为工作日（简单判断，不考虑节假日调休）
-    
-    Args:
-        date_str: 日期字符串，格式 YYYY-MM-DD
-        
-    Returns:
-        是否为工作日
-    """
-    try:
-        date = datetime.strptime(date_str, "%Y-%m-%d")
-        # 周一到周五为工作日（0-4），周六周日为休息日（5-6）
-        return date.weekday() < 5
-    except ValueError:
-        return True
-
-
-def validate_employee_id(employee_id: str) -> Tuple[bool, str]:
-    """
-    校验员工工号格式
-    
-    Args:
-        employee_id: 员工工号
-        
-    Returns:
-        (是否有效, 错误信息)
-    """
-    if not employee_id:
-        return False, "员工工号不能为空"
-    
-    if len(employee_id) < 3 or len(employee_id) > 20:
-        return False, "员工工号长度应在3-20个字符之间"
-    
-    return True, ""
-
-
-def validate_parking_area(parking_area: str, valid_areas: list) -> Tuple[bool, str]:
-    """
-    校验园区名称
-    
-    Args:
-        parking_area: 园区名称
-        valid_areas: 有效园区列表
-        
-    Returns:
-        (是否有效, 错误信息)
-    """
-    if not parking_area:
-        return False, "园区名称不能为空"
-    
-    if parking_area not in valid_areas:
-        return False, f"无效的园区名称，有效园区：{', '.join(valid_areas)}"
-    
-    return True, ""
-
-
-def validate_amount(amount: int) -> Tuple[bool, str]:
-    """
-    校验缴费金额
-    
-    Args:
-        amount: 缴费金额（单位：元）
-        
-    Returns:
-        (是否有效, 错误信息)
-    """
-    if amount is None:
-        return False, "缴费金额不能为空"
-    
-    if amount <= 0:
-        return False, "缴费金额必须大于0"
-    
-    if amount > 10000:
-        return False, "缴费金额超出限制"
-    
-    return True, ""
-
-
-def format_response(code: int = 200, msg: str = "操作成功", data: Optional[dict] = None) -> dict:
-    """
-    格式化API响应
-    
-    Args:
-        code: 状态码
-        msg: 消息
-        data: 数据
-        
-    Returns:
-        标准响应字典
-    """
-    response = {
-        "code": code,
-        "msg": msg
+**响应**：
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "cities": [
+      "潍坊",
+      "青岛",
+      "荣成",
+      "东莞"
+    ],
+    "rules": {
+      "潍坊": {
+        "daily_limit": 50,
+        "enabled": true
+      },
+      "青岛": {
+        "daily_limit": 30,
+        "enabled": true
+      },
+      "荣成": {
+        "daily_limit": 0,
+        "enabled": false
+      },
+      "东莞": {
+        "daily_limit": 40,
+        "enabled": true
+      }
     }
-    if data is not None:
-        response["data"] = data
-    return response
+  }
+}
 ```
 
-### 2. models.py - 数据模型模块
+#### 示例 2：提交预约申请
 
-```python
-"""
-数据模型模块
-封装CSV文件的读写操作，支持增删改查
-"""
-
-import csv
-import os
-from typing import List, Optional, Dict, Any
-from pathlib import Path
-import threading
-
-from utils import (
-    generate_reservation_id,
-    generate_payment_id,
-    get_current_datetime,
-    get_current_date,
-    is_workday
-)
-
-
-# 数据目录路径
-DATA_DIR = Path(__file__).parent / "data"
-
-
-class CSVDatabase:
-    """
-    CSV数据库基类
-    提供通用的CSV文件读写操作
-    """
-    
-    def __init__(self, filename: str, fieldnames: List[str]):
-        """
-        初始化CSV数据库
-        
-        Args:
-            filename: CSV文件名
-            fieldnames: 字段名列表
-        """
-        self.filepath = DATA_DIR / filename
-        self.fieldnames = fieldnames
-        self._lock = threading.Lock()
-        
-        # 确保数据目录存在
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        
-        # 如果文件不存在，创建并写入表头
-        if not self.filepath.exists():
-            self._write_header()
-    
-    def _write_header(self) -> None:
-        """写入CSV表头"""
-        with open(self.filepath, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-            writer.writeheader()
-    
-    def read_all(self) -> List[Dict[str, str]]:
-        """
-        读取所有记录
-        
-        Returns:
-            记录列表
-        """
-        with self._lock:
-            if not self.filepath.exists():
-                return []
-            
-            with open(self.filepath, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                return list(reader)
-    
-    def write_all(self, records: List[Dict[str, str]]) -> None:
-        """
-        写入所有记录（覆盖）
-        
-        Args:
-            records: 记录列表
-        """
-        with self._lock:
-            with open(self.filepath, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writeheader()
-                writer.writerows(records)
-    
-    def append(self, record: Dict[str, str]) -> None:
-        """
-        追加一条记录
-        
-        Args:
-            record: 记录字典
-        """
-        with self._lock:
-            with open(self.filepath, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writerow(record)
-    
-    def find_by_field(self, field: str, value: str) -> List[Dict[str, str]]:
-        """
-        按字段查找记录
-        
-        Args:
-            field: 字段名
-            value: 字段值
-            
-        Returns:
-            匹配的记录列表
-        """
-        records = self.read_all()
-        return [r for r in records if r.get(field) == value]
-    
-    def find_one_by_field(self, field: str, value: str) -> Optional[Dict[str, str]]:
-        """
-        按字段查找单条记录
-        
-        Args:
-            field: 字段名
-            value: 字段值
-            
-        Returns:
-            匹配的记录，如果不存在返回None
-        """
-        records = self.find_by_field(field, value)
-        return records[0] if records else None
-    
-    def update_by_field(self, field: str, value: str, updates: Dict[str, str]) -> bool:
-        """
-        按字段更新记录
-        
-        Args:
-            field: 字段名
-            value: 字段值
-            updates: 更新内容
-            
-        Returns:
-            是否更新成功
-        """
-        records = self.read_all()
-        updated = False
-        
-        for record in records:
-            if record.get(field) == value:
-                record.update(updates)
-                updated = True
-        
-        if updated:
-            self.write_all(records)
-        
-        return updated
-    
-    def delete_by_field(self, field: str, value: str) -> bool:
-        """
-        按字段删除记录
-        
-        Args:
-            field: 字段名
-            value: 字段值
-            
-        Returns:
-            是否删除成功
-        """
-        records = self.read_all()
-        new_records = [r for r in records if r.get(field) != value]
-        
-        if len(new_records) < len(records):
-            self.write_all(new_records)
-            return True
-        
-        return False
-
-
-class ParkModel(CSVDatabase):
-    """
-    园区配置模型
-    管理园区配置信息的CRUD操作
-    """
-    
-    FIELDNAMES = ['area', 'workday_quota', 'holiday_quota', 'is_open', 'description']
-    
-    def __init__(self):
-        """初始化园区配置模型"""
-        super().__init__("parks.csv", self.FIELDNAMES)
-        
-        # 如果文件为空，初始化默认数据
-        if len(self.read_all()) == 0:
-            self._init_default_data()
-    
-    def _init_default_data(self) -> None:
-        """初始化默认园区配置数据"""
-        default_data = [
-            {
-                'area': '青岛',
-                'workday_quota': '10',
-                'holiday_quota': '8',
-                'is_open': 'true',
-                'description': '青岛园区，工作日可预约10辆，节假日8辆'
-            },
-            {
-                'area': '潍坊',
-                'workday_quota': '15',
-                'holiday_quota': '10',
-                'is_open': 'true',
-                'description': '潍坊园区，工作日可预约15辆，节假日10辆'
-            },
-            {
-                'area': '荣成',
-                'workday_quota': '5',
-                'holiday_quota': '3',
-                'is_open': 'false',
-                'description': '荣成园区暂不开放预约'
-            },
-            {
-                'area': '东莞',
-                'workday_quota': '20',
-                'holiday_quota': '15',
-                'is_open': 'true',
-                'description': '东莞园区，工作日可预约20辆，节假日15辆'
-            }
-        ]
-        self.write_all(default_data)
-    
-    def get_all_areas(self) -> List[str]:
-        """
-        获取所有园区名称
-        
-        Returns:
-            园区名称列表
-        """
-        records = self.read_all()
-        return [r['area'] for r in records]
-    
-    def get_config(self, area: str) -> Optional[Dict[str, Any]]:
-        """
-        获取指定园区的配置
-        
-        Args:
-            area: 园区名称
-            
-        Returns:
-            园区配置字典
-        """
-        record = self.find_one_by_field('area', area)
-        if record:
-            return {
-                'area': record['area'],
-                'workday_quota': int(record['workday_quota']),
-                'holiday_quota': int(record['holiday_quota']),
-                'is_open': record['is_open'].lower() == 'true',
-                'description': record.get('description', '')
-            }
-        return None
-    
-    def update_config(self, area: str, workday_quota: Optional[int] = None,
-                      holiday_quota: Optional[int] = None,
-                      is_open: Optional[bool] = None) -> bool:
-        """
-        更新园区配置
-        
-        Args:
-            area: 园区名称
-            workday_quota: 工作日配额
-            holiday_quota: 节假日配额
-            is_open: 是否开放
-            
-        Returns:
-            是否更新成功
-        """
-        updates = {}
-        if workday_quota is not None:
-            updates['workday_quota'] = str(workday_quota)
-        if holiday_quota is not None:
-            updates['holiday_quota'] = str(holiday_quota)
-        if is_open is not None:
-            updates['is_open'] = 'true' if is_open else 'false'
-        
-        return self.update_by_field('area', area, updates)
-    
-    def get_quota(self, area: str, date_str: str) -> int:
-        """
-        获取指定日期的配额
-        
-        Args:
-            area: 园区名称
-            date_str: 日期字符串
-            
-        Returns:
-            当日配额
-        """
-        config = self.get_config(area)
-        if not config:
-            return 0
-        
-        if is_workday(date_str):
-            return config['workday_quota']
-        else:
-            return config['holiday_quota']
-
-
-class ReservationModel(CSVDatabase):
-    """
-    预约记录模型
-    管理预约信息的CRUD操作
-    """
-    
-    FIELDNAMES = [
-        'reservation_id', 'license', 'parking_area', 'date',
-        'name', 'employee_id', 'phone', 'status', 'created_at'
-    ]
-    
-    def __init__(self):
-        """初始化预约记录模型"""
-        super().__init__("reservations.csv", self.FIELDNAMES)
-    
-    def create_reservation(self, name: str, employee_id: str, phone: str,
-                          parking_area: str, date: str, license_plate: str) -> Dict[str, Any]:
-        """
-        创建预约记录
-        
-        Args:
-            name: 员工姓名
-            employee_id: 员工工号
-            phone: 手机号
-            parking_area: 园区名称
-            date: 预约日期
-            license_plate: 车牌号
-            
-        Returns:
-            创建的预约记录
-        """
-        # 生成预约ID
-        sequence = len(self.find_by_field('date', date)) + 1
-        reservation_id = generate_reservation_id(date, sequence)
-        
-        record = {
-            'reservation_id': reservation_id,
-            'license': license_plate,
-            'parking_area': parking_area,
-            'date': date,
-            'name': name,
-            'employee_id': employee_id,
-            'phone': phone,
-            'status': '待生效',
-            'created_at': get_current_datetime()
-        }
-        
-        self.append(record)
-        return record
-    
-    def get_reservation(self, reservation_id: str) -> Optional[Dict[str, str]]:
-        """
-        获取预约记录
-        
-        Args:
-            reservation_id: 预约ID
-            
-        Returns:
-            预约记录
-        """
-        return self.find_one_by_field('reservation_id', reservation_id)
-    
-    def cancel_reservation(self, reservation_id: str) -> bool:
-        """
-        取消预约
-        
-        Args:
-            reservation_id: 预约ID
-            
-        Returns:
-            是否取消成功
-        """
-        return self.update_by_field(
-            'reservation_id', reservation_id,
-            {'status': '已取消'}
-        )
-    
-    def get_by_date_and_area(self, date: str, parking_area: str,
-                             status: Optional[str] = None) -> List[Dict[str, str]]:
-        """
-        获取指定日期和园区的预约记录
-        
-        Args:
-            date: 日期
-            parking_area: 园区名称
-            status: 状态过滤（可选）
-            
-        Returns:
-            预约记录列表
-        """
-        records = self.read_all()
-        result = [
-            r for r in records
-            if r['date'] == date and r['parking_area'] == parking_area
-        ]
-        
-        if status:
-            result = [r for r in result if r['status'] == status]
-        
-        return result
-    
-    def get_remaining_quota(self, parking_area: str, date: str) -> int:
-        """
-        获取剩余可预约车位数
-        
-        Args:
-            parking_area: 园区名称
-            date: 日期
-            
-        Returns:
-            剩余车位数
-        """
-        # 获取有效预约数（状态为"待生效"）
-        reservations = self.get_by_date_and_area(date, parking_area, '待生效')
-        return len(reservations)
-    
-    def check_license_exists(self, license_plate: str, date: str,
-                             parking_area: str) -> bool:
-        """
-        检查车牌是否已预约
-        
-        Args:
-            license_plate: 车牌号
-            date: 日期
-            parking_area: 园区名称
-            
-        Returns:
-            是否存在预约
-        """
-        records = self.read_all()
-        for r in records:
-            if (r['license'] == license_plate and
-                r['date'] == date and
-                r['parking_area'] == parking_area and
-                r['status'] == '待生效'):
-                return True
-        return False
-    
-    def get_reservations_by_employee(self, employee_id: str) -> List[Dict[str, str]]:
-        """
-        获取员工的所有预约记录
-        
-        Args:
-            employee_id: 员工工号
-            
-        Returns:
-            预约记录列表
-        """
-        return self.find_by_field('employee_id', employee_id)
-
-
-class PaymentModel(CSVDatabase):
-    """
-    缴费记录模型
-    管理缴费信息的CRUD操作
-    """
-    
-    FIELDNAMES = ['payment_id', 'license', 'parking_area', 'amount', 'paid_at', 'status']
-    
-    def __init__(self):
-        """初始化缴费记录模型"""
-        super().__init__("payments.csv", self.FIELDNAMES)
-    
-    def create_payment(self, license_plate: str, parking_area: str,
-                       amount: int) -> Dict[str, Any]:
-        """
-        创建缴费记录
-        
-        Args:
-            license_plate: 车牌号
-            parking_area: 园区名称
-            amount: 缴费金额
-            
-        Returns:
-            创建的缴费记录
-        """
-        # 生成缴费ID
-        today = get_current_date()
-        today_payments = self.find_by_field('paid_at', get_current_datetime()[:10])
-        sequence = len(today_payments) + 1
-        payment_id = generate_payment_id(today, sequence)
-        
-        record = {
-            'payment_id': payment_id,
-            'license': license_plate,
-            'parking_area': parking_area,
-            'amount': str(amount),
-            'paid_at': get_current_datetime(),
-            'status': '成功'
-        }
-        
-        self.append(record)
-        return record
-    
-    def get_payment(self, payment_id: str) -> Optional[Dict[str, str]]:
-        """
-        获取缴费记录
-        
-        Args:
-            payment_id: 缴费ID
-            
-        Returns:
-            缴费记录
-        """
-        return self.find_one_by_field('payment_id', payment_id)
-    
-    def get_payments_by_license(self, license_plate: str) -> List[Dict[str, str]]:
-        """
-        获取车牌的所有缴费记录
-        
-        Args:
-            license_plate: 车牌号
-            
-        Returns:
-            缴费记录列表
-        """
-        return self.find_by_field('license', license_plate)
-    
-    def check_paid(self, license_plate: str, date: str) -> bool:
-        """
-        检查车牌在指定日期是否已缴费
-        
-        Args:
-            license_plate: 车牌号
-            date: 日期
-            
-        Returns:
-            是否已缴费
-        """
-        payments = self.get_payments_by_license(license_plate)
-        for p in payments:
-            if p['paid_at'].startswith(date) and p['status'] == '成功':
-                return True
-        return False
-
-
-# 创建全局模型实例
-park_model = ParkModel()
-reservation_model = ReservationModel()
-payment_model = PaymentModel()
+**请求**：
+```http
+POST /api/reservation/create HTTP/1.1
+Host: localhost:8000
+Content-Type: application/json
+{
+  "name": "张三",
+  "work_number": "1001",
+  "phone": "13800138000",
+  "plate_number": "鲁G12345",
+  "city": "潍坊",
+  "date": "2024-05-20"
+}
 ```
 
-### 3. services.py - 业务逻辑层
-
-```python
-"""
-业务逻辑层模块
-封装核心业务逻辑，包括预约、取消、缴费等功能
-"""
-
-from typing import Dict, Any, Tuple, List, Optional
-
-from models import park_model, reservation_model, payment_model
-from utils import (
-    validate_license_plate,
-    validate_phone,
-    validate_reservation_date,
-    validate_employee_id,
-    validate_parking_area,
-    validate_amount,
-    format_response
-)
-
-
-class ReservationService:
-    """
-    预约服务类
-    处理预约相关的业务逻辑
-    """
-    
-    def __init__(self):
-        """初始化预约服务"""
-        self.park_model = park_model
-        self.reservation_model = reservation_model
-    
-    def create_reservation(self, name: str, employee_id: str, phone: str,
-                          parking_area: str, date: str, license_plate: str) -> Dict[str, Any]:
-        """
-        创建预约
-        
-        Args:
-            name: 员工姓名
-            employee_id: 员工工号
-            phone: 手机号
-            parking_area: 园区名称
-            date: 预约日期
-            license_plate: 车牌号
-            
-        Returns:
-            响应结果
-        """
-        try:
-            # 1. 校验员工姓名
-            if not name or len(name.strip()) == 0:
-                return format_response(400, "员工姓名不能为空")
-            
-            # 2. 校验员工工号
-            valid, msg = validate_employee_id(employee_id)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 3. 校验手机号
-            valid, msg = validate_phone(phone)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 4. 校验园区名称
-            valid_areas = self.park_model.get_all_areas()
-            valid, msg = validate_parking_area(parking_area, valid_areas)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 5. 校验预约日期
-            valid, msg = validate_reservation_date(date)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 6. 校验车牌号
-            valid, msg = validate_license_plate(license_plate)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 7. 检查园区是否开放
-            config = self.park_model.get_config(parking_area)
-            if not config:
-                return format_response(404, "园区不存在")
-            
-            if not config['is_open']:
-                return format_response(400, "该园区暂未开放预约")
-            
-            # 8. 检查预约配额
-            total_quota = self.park_model.get_quota(parking_area, date)
-            current_count = self.reservation_model.get_remaining_quota(parking_area, date)
-            
-            if current_count >= total_quota:
-                return format_response(400, "当前园区预约已满")
-            
-            # 9. 检查车牌是否已预约
-            if self.reservation_model.check_license_exists(license_plate, date, parking_area):
-                return format_response(400, "该车牌已在当前园区预约")
-            
-            # 10. 创建预约记录
-            reservation = self.reservation_model.create_reservation(
-                name=name.strip(),
-                employee_id=employee_id.strip(),
-                phone=phone.strip(),
-                parking_area=parking_area,
-                date=date,
-                license_plate=license_plate.strip().upper()
-            )
-            
-            # 11. 模拟推送到科拓系统
-            self._push_to_ketuou_system(reservation)
-            
-            return format_response(
-                200,
-                "预约成功",
-                {"reservation_id": reservation['reservation_id']}
-            )
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def _push_to_ketuou_system(self, reservation: Dict[str, str]) -> bool:
-        """
-        模拟推送到科拓系统
-        
-        Args:
-            reservation: 预约记录
-            
-        Returns:
-            是否推送成功
-        """
-        # 这里模拟推送，实际项目中需要调用科拓系统API
-        print(f"[科拓系统] 推送预约信息: {reservation}")
-        return True
-    
-    def cancel_reservation(self, reservation_id: str) -> Dict[str, Any]:
-        """
-        取消预约
-        
-        Args:
-            reservation_id: 预约ID
-            
-        Returns:
-            响应结果
-        """
-        try:
-            # 1. 检查预约是否存在
-            reservation = self.reservation_model.get_reservation(reservation_id)
-            if not reservation:
-                return format_response(404, "预约记录不存在")
-            
-            # 2. 检查预约状态
-            if reservation['status'] == '已取消':
-                return format_response(400, "该预约已取消")
-            
-            # 3. 取消预约
-            success = self.reservation_model.cancel_reservation(reservation_id)
-            if not success:
-                return format_response(500, "取消失败")
-            
-            # 4. 模拟通知科拓系统
-            self._notify_cancel_to_ketuou(reservation)
-            
-            return format_response(200, "取消成功")
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def _notify_cancel_to_ketuou(self, reservation: Dict[str, str]) -> bool:
-        """
-        模拟通知科拓系统取消预约
-        
-        Args:
-            reservation: 预约记录
-            
-        Returns:
-            是否通知成功
-        """
-        print(f"[科拓系统] 通知取消预约: {reservation}")
-        return True
-    
-    def get_reservation(self, reservation_id: str) -> Dict[str, Any]:
-        """
-        获取预约详情
-        
-        Args:
-            reservation_id: 预约ID
-            
-        Returns:
-            响应结果
-        """
-        try:
-            reservation = self.reservation_model.get_reservation(reservation_id)
-            if not reservation:
-                return format_response(404, "预约记录不存在")
-            
-            return format_response(200, "查询成功", reservation)
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def get_remaining_quota(self, parking_area: str, date: str) -> Dict[str, Any]:
-        """
-        获取剩余车位数量
-        
-        Args:
-            parking_area: 园区名称
-            date: 日期
-            
-        Returns:
-            响应结果
-        """
-        try:
-            # 获取园区配置
-            config = self.park_model.get_config(parking_area)
-            if not config:
-                return format_response(404, "园区不存在")
-            
-            # 获取总配额
-            total_quota = self.park_model.get_quota(parking_area, date)
-            
-            # 获取已预约数量
-            used_count = self.reservation_model.get_remaining_quota(parking_area, date)
-            
-            # 计算剩余数量
-            remaining = total_quota - used_count
-            
-            return format_response(200, "查询成功", {
-                "total_quota": total_quota,
-                "used_count": used_count,
-                "remaining": max(0, remaining),
-                "is_open": config['is_open']
-            })
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def get_reservations_by_employee(self, employee_id: str) -> Dict[str, Any]:
-        """
-        获取员工的预约记录
-        
-        Args:
-            employee_id: 员工工号
-            
-        Returns:
-            响应结果
-        """
-        try:
-            reservations = self.reservation_model.get_reservations_by_employee(employee_id)
-            return format_response(200, "查询成功", {"reservations": reservations})
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-
-
-class PaymentService:
-    """
-    缴费服务类
-    处理缴费相关的业务逻辑
-    """
-    
-    def __init__(self):
-        """初始化缴费服务"""
-        self.payment_model = payment_model
-        self.reservation_model = reservation_model
-    
-    def create_payment(self, license_plate: str, parking_area: str,
-                       amount: int) -> Dict[str, Any]:
-        """
-        创建缴费记录
-        
-        Args:
-            license_plate: 车牌号
-            parking_area: 园区名称
-            amount: 缴费金额
-            
-        Returns:
-            响应结果
-        """
-        try:
-            # 1. 校验车牌号
-            valid, msg = validate_license_plate(license_plate)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 2. 校验园区名称
-            valid_areas = park_model.get_all_areas()
-            valid, msg = validate_parking_area(parking_area, valid_areas)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 3. 校验缴费金额
-            valid, msg = validate_amount(amount)
-            if not valid:
-                return format_response(400, msg)
-            
-            # 4. 创建缴费记录
-            payment = self.payment_model.create_payment(
-                license_plate=license_plate.strip().upper(),
-                parking_area=parking_area,
-                amount=amount
-            )
-            
-            # 5. 模拟推送到科拓系统
-            self._push_payment_to_ketuou(payment)
-            
-            return format_response(
-                200,
-                "缴费成功，离厂时无需支付",
-                {"payment_id": payment['payment_id']}
-            )
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def _push_payment_to_ketuou(self, payment: Dict[str, str]) -> bool:
-        """
-        模拟推送缴费信息到科拓系统
-        
-        Args:
-            payment: 缴费记录
-            
-        Returns:
-            是否推送成功
-        """
-        print(f"[科拓系统] 推送缴费信息: {payment}")
-        return True
-    
-    def get_payment(self, payment_id: str) -> Dict[str, Any]:
-        """
-        获取缴费详情
-        
-        Args:
-            payment_id: 缴费ID
-            
-        Returns:
-            响应结果
-        """
-        try:
-            payment = self.payment_model.get_payment(payment_id)
-            if not payment:
-                return format_response(404, "缴费记录不存在")
-            
-            return format_response(200, "查询成功", payment)
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def get_payments_by_license(self, license_plate: str) -> Dict[str, Any]:
-        """
-        获取车牌的缴费记录
-        
-        Args:
-            license_plate: 车牌号
-            
-        Returns:
-            响应结果
-        """
-        try:
-            payments = self.payment_model.get_payments_by_license(license_plate)
-            return format_response(200, "查询成功", {"payments": payments})
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-
-
-class ConfigService:
-    """
-    配置服务类
-    处理园区配置相关的业务逻辑
-    """
-    
-    def __init__(self):
-        """初始化配置服务"""
-        self.park_model = park_model
-    
-    def get_all_parks(self) -> Dict[str, Any]:
-        """
-        获取所有园区配置
-        
-        Returns:
-            响应结果
-        """
-        try:
-            parks = self.park_model.read_all()
-            return format_response(200, "查询成功", {"parks": parks})
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def get_park_config(self, area: str) -> Dict[str, Any]:
-        """
-        获取园区配置
-        
-        Args:
-            area: 园区名称
-            
-        Returns:
-            响应结果
-        """
-        try:
-            config = self.park_model.get_config(area)
-            if not config:
-                return format_response(404, "园区不存在")
-            
-            return format_response(200, "查询成功", config)
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-    
-    def update_park_config(self, area: str, workday_quota: Optional[int] = None,
-                          holiday_quota: Optional[int] = None,
-                          is_open: Optional[bool] = None) -> Dict[str, Any]:
-        """
-        更新园区配置
-        
-        Args:
-            area: 园区名称
-            workday_quota: 工作日配额
-            holiday_quota: 节假日配额
-            is_open: 是否开放
-            
-        Returns:
-            响应结果
-        """
-        try:
-            # 检查园区是否存在
-            config = self.park_model.get_config(area)
-            if not config:
-                return format_response(404, "园区不存在")
-            
-            # 更新配置
-            success = self.park_model.update_config(
-                area=area,
-                workday_quota=workday_quota,
-                holiday_quota=holiday_quota,
-                is_open=is_open
-            )
-            
-            if not success:
-                return format_response(500, "更新失败")
-            
-            return format_response(200, "更新成功")
-            
-        except Exception as e:
-            return format_response(500, f"系统错误：{str(e)}")
-
-
-# 创建全局服务实例
-reservation_service = ReservationService()
-payment_service = PaymentService()
-config_service = ConfigService()
+**响应**：
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "reservation_id": "R20240520001"
+  }
+}
 ```
 
-### 4. routes.py - API路由模块
+#### 示例 3：提前缴费
 
-```python
-"""
-API路由模块
-定义所有REST API端点
-"""
-
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-
-from services import reservation_service, payment_service, config_service
-from utils import format_response
-
-
-# 创建路由器
-router = APIRouter()
-
-
-# ==================== 请求模型定义 ====================
-
-class ReservationRequest(BaseModel):
-    """预约请求模型"""
-    name: str = Field(..., description="员工姓名")
-    id: str = Field(..., description="员工工号")
-    phone: str = Field(..., description="手机号")
-    parking_area: str = Field(..., description="园区名称")
-    date: str = Field(..., description="预约日期，格式：YYYY-MM-DD")
-    license: str = Field(..., description="车牌号")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "张三",
-                "id": "E12345",
-                "phone": "13800138000",
-                "parking_area": "青岛",
-                "date": "2025-04-05",
-                "license": "鲁G12345"
-            }
-        }
-
-
-class PaymentRequest(BaseModel):
-    """缴费请求模型"""
-    license: str = Field(..., description="车牌号")
-    parking_area: str = Field(..., description="园区名称")
-    amount: int = Field(..., description="缴费金额，单位：元")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "license": "鲁G12345",
-                "parking_area": "青岛",
-                "amount": 50
-            }
-        }
-
-
-class ConfigUpdateRequest(BaseModel):
-    """配置更新请求模型"""
-    workday_quota: Optional[int] = Field(None, description="工作日配额")
-    holiday_quota: Optional[int] = Field(None, description="节假日配额")
-    is_open: Optional[bool] = Field(None, description="是否开放")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "workday_quota": 15,
-                "holiday_quota": 10,
-                "is_open": True
-            }
-        }
-
-
-# ==================== 预约相关接口 ====================
-
-@router.post("/reservation", summary="创建预约", tags=["预约管理"])
-async def create_reservation(request: ReservationRequest):
-    """
-    创建临时车辆预约
-    
-    - **name**: 员工姓名
-    - **id**: 员工工号
-    - **phone**: 手机号
-    - **parking_area**: 园区名称（潍坊/青岛/荣成/东莞）
-    - **date**: 预约日期（YYYY-MM-DD格式）
-    - **license**: 车牌号
-    """
-    try:
-        result = reservation_service.create_reservation(
-            name=request.name,
-            employee_id=request.id,
-            phone=request.phone,
-            parking_area=request.parking_area,
-            date=request.date,
-            license_plate=request.license
-        )
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.delete("/reservation/{reservation_id}", summary="取消预约", tags=["预约管理"])
-async def cancel_reservation(reservation_id: str):
-    """
-    取消预约
-    
-    - **reservation_id**: 预约ID
-    """
-    try:
-        result = reservation_service.cancel_reservation(reservation_id)
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.get("/reservation/{reservation_id}", summary="查询预约详情", tags=["预约管理"])
-async def get_reservation(reservation_id: str):
-    """
-    查询预约详情
-    
-    - **reservation_id**: 预约ID
-    """
-    try:
-        result = reservation_service.get_reservation(reservation_id)
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.get("/reservation/employee/{employee_id}", summary="查询员工预约记录", tags=["预约管理"])
-async def get_employee_reservations(employee_id: str):
-    """
-    查询员工的所有预约记录
-    
-    - **employee_id**: 员工工号
-    """
-    try:
-        result = reservation_service.get_reservations_by_employee(employee_id)
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.get("/quota", summary="查询剩余车位", tags=["预约管理"])
-async def get_remaining_quota(
-    parking_area: str = Query(..., description="园区名称"),
-    date: str = Query(..., description="预约日期，格式：YYYY-MM-DD")
-):
-    """
-    查询指定园区和日期的剩余车位数
-    
-    - **parking_area**: 园区名称
-    - **date**: 预约日期
-    """
-    try:
-        result = reservation_service.get_remaining_quota(parking_area, date)
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-# ==================== 缴费相关接口 ====================
-
-@router.post("/payment", summary="创建缴费", tags=["缴费管理"])
-async def create_payment(request: PaymentRequest):
-    """
-    创建提前缴费记录
-    
-    - **license**: 车牌号
-    - **parking_area**: 园区名称
-    - **amount**: 缴费金额（单位：元）
-    """
-    try:
-        result = payment_service.create_payment(
-            license_plate=request.license,
-            parking_area=request.parking_area,
-            amount=request.amount
-        )
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.get("/payment/{payment_id}", summary="查询缴费详情", tags=["缴费管理"])
-async def get_payment(payment_id: str):
-    """
-    查询缴费详情
-    
-    - **payment_id**: 缴费ID
-    """
-    try:
-        result = payment_service.get_payment(payment_id)
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.get("/payment/license/{license_plate}", summary="查询车牌缴费记录", tags=["缴费管理"])
-async def get_license_payments(license_plate: str):
-    """
-    查询指定车牌的所有缴费记录
-    
-    - **license_plate**: 车牌号
-    """
-    try:
-        result = payment_service.get_payments_by_license(license_plate)
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-# ==================== 配置相关接口 ====================
-
-@router.get("/config", summary="查询园区配置", tags=["配置管理"])
-async def get_park_config(
-    area: Optional[str] = Query(None, description="园区名称，不传则返回所有园区")
-):
-    """
-    查询园区配置
-    
-    - **area**: 园区名称（可选，不传则返回所有园区配置）
-    """
-    try:
-        if area:
-            result = config_service.get_park_config(area)
-        else:
-            result = config_service.get_all_parks()
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-@router.put("/config/{area}", summary="更新园区配置", tags=["配置管理"])
-async def update_park_config(area: str, request: ConfigUpdateRequest):
-    """
-    更新园区配置（管理员权限）
-    
-    - **area**: 园区名称
-    - **workday_quota**: 工作日配额（可选）
-    - **holiday_quota**: 节假日配额（可选）
-    - **is_open**: 是否开放（可选）
-    """
-    try:
-        result = config_service.update_park_config(
-            area=area,
-            workday_quota=request.workday_quota,
-            holiday_quota=request.holiday_quota,
-            is_open=request.is_open
-        )
-        return JSONResponse(
-            status_code=result["code"] if result["code"] < 400 else 400,
-            content=result
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=format_response(500, f"服务器内部错误：{str(e)}")
-        )
-
-
-# ==================== 健康检查接口 ====================
-
-@router.get("/health", summary="健康检查", tags=["系统"])
-async def health_check():
-    """
-    健康检查接口，用于确认服务是否正常运行
-    """
-    return format_response(200, "服务正常", {"status": "healthy"})
+**请求**：
+```http
+POST /api/payment/record HTTP/1.1
+Host: localhost:8000
+Content-Type: application/json
+{
+  "plate_number": "鲁G12345",
+  "city": "潍坊",
+  "amount": 50
+}
 ```
 
-### 5. app.py - FastAPI主入口
-
-```python
-"""
-FastAPI 主入口
-启动服务器，配置中间件和静态文件服务
-"""
-
-import os
-from pathlib import Path
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-
-from routes import router
-from utils import format_response
-
-
-# 项目根目录
-BASE_DIR = Path(__file__).parent
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    应用生命周期管理
-    启动时初始化数据目录，关闭时清理资源
-    """
-    # 启动时初始化
-    print("🚀 员工临时车辆预约系统启动中...")
-    
-    # 确保数据目录存在
-    data_dir = BASE_DIR / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    print(f"📁 数据目录: {data_dir}")
-    
-    # 确保静态文件目录存在
-    static_dir = BASE_DIR / "static"
-    static_dir.mkdir(parents=True, exist_ok=True)
-    print(f"📁 静态文件目录: {static_dir}")
-    
-    print("✅ 系统初始化完成")
-    
-    yield
-    
-    # 关闭时清理
-    print("👋 员工临时车辆预约系统已关闭")
-
-
-# 创建FastAPI应用
-app = FastAPI(
-    title="员工临时车辆预约系统",
-    description="""
-## 员工临时车辆预约系统 API
-
-提供以下功能：
-- 临时车辆预约申请、取消
-- 提前缴费功能
-- 园区配置管理
-- 剩余车位查询
-
-### 园区列表
-- 青岛
-- 潍坊
-- 荣成
-- 东莞
-    """,
-    version="1.0.0",
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
-
-
-# 配置CORS中间件
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制具体域名
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# 注册API路由
-app.include_router(router, prefix="/api")
-
-
-# 挂载静态文件目录
-static_dir = BASE_DIR / "static"
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-
-# 首页路由
-@app.get("/", summary="首页", tags=["页面"])
-async def index():
-    """
-    返回前端首页
-    """
-    index_file = static_dir / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
-    return {"message": "员工临时车辆预约系统 API", "docs": "/docs"}
-
-
-# 全局异常处理
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """
-    全局异常处理器
-    捕获所有未处理的异常，返回友好的错误信息
-    """
-    print(f"❌ 未处理的异常: {type(exc).__name__}: {exc}")
-    return format_response(500, f"服务器内部错误，请稍后重试")
-
-
-# 404处理
-@app.exception_handler(404)
-async def not_found_handler(request: Request, exc):
-    """
-    404错误处理器
-    """
-    return format_response(404, "请求的资源不存在")
-
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    # 启动服务器
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+**响应**：
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "payment_id": "P20240520001"
+  }
+}
 ```
 
-### 6. requirements.txt - 依赖清单
+## 5. 数据模型设计
 
+### 5.1 CSV 表结构定义
+
+#### 表1：`config.csv` - 园区配置表
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| city | string | 必填 | 园区名称（如：潍坊） |
+| daily_limit | int | 必填 | 每日最大预约配额（0表示关闭） |
+| enabled | bool | 必填 | 是否开启预约（true/false） |
+
+> **示例数据**：
+> | city | daily_limit | enabled |
+> |------|-------------|----------|
+> | 潍坊 | 50 | true |
+> | 青岛 | 30 | true |
+> | 荣成 | 0 | false |
+> | 东莞 | 40 | true |
+
+#### 表2：`reservation.csv` - 预约记录表
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| plate_number | string | 必填 | 车牌号（格式：鲁G12345 或 鲁G12345E） |
+| city | string | 必填 | 园区名称 |
+| date | date | 必填 | 预约日期（格式：YYYY-MM-DD） |
+| status | string | 必填 | 状态（success / canceled / pending） |
+| user_info | string | 可选 | 用户信息（姓名/工号/手机号，用 `/` 分隔） |
+
+> **示例数据**：
+> | plate_number | city | date | status | user_info |
+> |-------------|--------|--------|--------|-----------|
+> | 鲁G12345 | 潍坊 | 2024-05-20 | success | 张三/1001/13800138000 |
+> | 鲁G67890 | 青岛 | 2024-05-20 | canceled | 李四/2002/13900139000 |
+
+#### 表3：`payment.csv` - 缴费记录表
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| plate_number | string | 必填 | 车牌号 |
+| city | string | 必填 | 园区名称 |
+| payment_time | datetime | 必填 | 缴费时间（格式：YYYY-MM-DD HH:MM:SS） |
+| amount | float | 必填 | 缴费金额（单位：元） |
+| status | string | 必填 | 状态（success / failed） |
+
+> **示例数据**：
+> | plate_number | city | payment_time | amount | status |
+> |-------------|--------|----------------|--------|--------|
+> | 鲁G12345 | 潍坊 | 2024-05-20 09:00:00 | 50.0 | success |
+> | 鲁G67890 | 青岛 | 2024-05-20 10:30:00 | 30.0 | success |
+
+### 5.2 表间关系说明
+
+- `reservation.csv` 与 `config.csv` 关联：通过 `city` 字段关联，用于判断配额是否超限。
+- `reservation.csv` 与 `payment.csv` 关联：通过 `plate_number` 和 `city` 字段关联，用于判断是否已缴费。
+- 所有表均以 `plate_number` 和 `city` 为唯一标识，确保数据一致性。
+
+## 6. 关键业务流程
+
+### 6.1 核心业务流程图（Mermaid Sequence Diagram）
+
+```mermaid
+sequenceDiagram
+    participant 员工
+    participant 系统
+    participant 科拓系统
+
+    员工->>系统: 提交预约申请
+    系统->>系统: 校验输入信息（姓名、工号、手机号、车牌号、时间）
+    系统->>系统: 检查园区配额（是否超限）
+    alt 配额充足
+        系统->>系统: 生成预约记录
+        系统->>科拓系统: 推送预约信息（车牌号、园区、时间、用户信息）
+        科拓系统-->>系统: 接收成功
+        系统->>员工: 返回成功提示
+    else 配额不足
+        系统->>员工: 返回“当前园区预约已满”提示
+    end
+
+    员工->>系统: 提交提前缴费
+    系统->>系统: 校验车牌号和园区
+    系统->>系统: 生成缴费记录
+    系统->>科拓系统: 推送缴费信息（车牌号、园区、金额）
+    科拓系统-->>系统: 接收成功
+    系统->>员工: 返回“缴费成功”提示
+
+    员工->>系统: 取消预约
+    系统->>系统: 查询预约记录
+    系统->>系统: 更新状态为“已取消”
+    系统->>系统: 释放配额
+    系统->>员工: 返回“预约已取消”提示
 ```
-# FastAPI 框架
-fastapi>=0.104.0
 
-# ASGI 服务器
-uvicorn[standard]>=0.24.0
+### 6.2 异常处理流程
 
-# 数据验证
-pydantic>=2.0.0
+| 异常场景 | 处理方式 |
+|----------|----------|
+| 车牌号格式错误 | 提示“车牌号格式不正确（应为鲁G12345 或 鲁G12345E）” |
+| 工号/手机号为空 | 提示“工号或手机号不能为空” |
+| 预约时间不在未来 | 提示“预约时间必须为未来日期” |
+| 预约配额超限 | 提示“当前园区预约已满” |
+| 重复预约（同车牌同园区同天） | 提示“该车辆已预约” |
+| 提前缴费失败（科拓系统接口错误） | 提示“缴费失败，请重试” |
+| 系统配置错误（如配额为0且开启预约） | 提示“该园区暂不开放预约” |
 
-# HTTP 客户端（用于调用外部API）
-httpx>=0.25.0
+## 7. 非功能性需求
 
-# Python-multipart（用于表单数据处理）
-python-multipart>=0.0.6
-```
+### 7.1 性能指标
 
-### 7. data/parks.csv - 园区配置表
+- **响应时间**：所有 API 接口响应时间 ≤ 1 秒（在本地单机环境下）
+- **并发支持**：支持 100 个并发用户同时访问（FastAPI 异步支持）
+- **数据处理能力**：每秒处理 ≥ 50 条预约请求
 
-```csv
-area,workday_quota,holiday_quota,is_open,description
-青岛,10,8,true,"青岛园区，工作日可预约10辆，节假日8辆"
-潍坊,15,10,true,"潍坊园区，工作日可预约15辆，节假日10辆"
-荣成,5,3,false,"荣成园区暂不开放预约"
-东莞,20,15,true,"东莞园区，工作日可预约20辆，节假日15辆"
-```
+### 7.2 安全策略
 
-### 8. data/reservations.csv - 预约记录表
+- **数据安全**：所有敏感信息（如手机号、工号）在前端不存储，仅在请求中传递，后端不保存原始数据。
+- **访问控制**：
+  - 普通员工仅能访问自己的预约信息
+  - 管理员需登录后访问后台配置和历史记录
+- **输入校验**：所有输入参数进行严格校验，防止 SQL 注入、XSS 攻击等。
+- **接口安全**：API 接口不暴露在公网，仅在内网部署，访问需通过 IP 白名单控制。
 
-```csv
-reservation_id,license,parking_area,date,name,employee_id,phone,status,created_at
-```
+### 7.3 错误处理策略
 
-### 9. data/payments.csv - 缴费记录表
-
-```csv
-payment_id,license,parking_area,amount,paid_at,status
-```
-
-### 10. static/index.html - 前端页面
-
-文件已生成，包含完整的预约申请、我的预约、提前缴费、园区信息等功能的前端界面。
-
----
-
-## 运行方式
-
-```bash
-# 进入项目目录
-cd /home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260531_154924_af48cc/代码生成/
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 启动服务
-python app.py
-
-# 访问地址
-# 首页：http://localhost:8000/
-# API文档：http://localhost:8000/docs
-```
-
----
-
-## 代码特点
-
-1. ✅ **语法正确**：所有Python文件通过语法检查
-2. ✅ **类型注解**：所有函数参数和返回值使用Type Hints
-3. ✅ **错误处理**：每个API端点有明确的try/except
-4. ✅ **CSV操作**：封装CSV读写为类，支持增删改查
-5. ✅ **注释清晰**：每个模块、类和函数有docstring
-6. ✅ **PEP 8规范**：代码风格符合规范
+- **HTTP 状态码**：
+  - `200`：成功
+  - `400`：请求参数错误
+  - `404`：资源未找到
+  - `500`：服务器内部错误
+- **错误信息**：
+  - 前端显示用户友好的错误提示，后端记录日志用于排查。
+  - 错误信息不暴露敏感数据（如数据库路径、密码）。
+- **日志记录**：所有关键操作（如预约提交、取消、缴费）记录到日志文件，便于审计。

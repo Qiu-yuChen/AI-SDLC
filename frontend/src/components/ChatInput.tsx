@@ -16,10 +16,7 @@ export function ChatInput({ onSend, onStop, disabled, canStop, canResume }: Prop
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleVoiceResult = useCallback((transcript: string) => {
-    setText((prev) => {
-      const withoutPrevInterim = prev.replace(/[🎙️🔴🟢].*$/, '').trim();
-      return withoutPrevInterim ? `${withoutPrevInterim} ${transcript}` : transcript;
-    });
+    setText(transcript);
   }, []);
 
   const { isListening, isSupported, toggleListening } = useVoiceInput(handleVoiceResult);

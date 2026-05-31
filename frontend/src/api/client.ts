@@ -55,10 +55,14 @@ export async function stopBatch(batchId: string): Promise<void> {
 
 export async function resumeBatch(batchId: string, guidance = ''): Promise<void> {
   const res = await fetch(`${BASE}/batches/${batchId}/resume`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ guidance }),
   });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function deleteBatch(batchId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(await res.text());
 }
 

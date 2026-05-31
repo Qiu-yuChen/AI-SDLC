@@ -283,13 +283,6 @@ class OrchestratorEngine:
         quality_dir.mkdir(parents=True, exist_ok=True)
         generate_reports(quality_dir, report)
 
-        self.sm.update_node(
-            "质量评分",
-            "completed",
-            output_files=["质量评分/scoring_report.json", "质量评分/scoring_report.md"],
-            quality_score=composite,
-        )
-
         self.sm.append_log({
             "event": "scoring_completed",
             "composite_score": composite,

@@ -103,10 +103,30 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
   const mountedRef = useRef(true);
   const pipelineMsgIdRef = useRef<string | null>(null);
   const reactLogMsgIdRef = useRef<string | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => { setCurrentBatchId(batchId); }, [batchId]);
+
+  // Scroll detection for "back to bottom" button
+  const handleScroll = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
+  }, []);
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
+  function scrollToBottom() {
+    const el = chatContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }
 
   const addMsg = useCallback((msg: ChatMsg) => {
     if (!mountedRef.current) return;
@@ -185,26 +205,25 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
     const sortedFiles = Array.from(new Set(files)).sort((a, b) => a.localeCompare(b, 'zh-CN'));
     setMessages((prev) => {
       const existingIndex = prev.findIndex((m) => m.type === 'file_list');
+      // 始终用合并后的完整列表替换（不累加，上游已负责合并）
+      const next = [...prev];
       if (existingIndex < 0) {
-        return [...prev, {
+        next.push({
           id: nextId(),
           role: 'assistant',
           type: 'file_list',
           content: '已生成以下产物，可预览或一键下载 ZIP:',
           outputFiles: sortedFiles,
           timestamp: now(),
-        }];
+        });
+      } else {
+        next[existingIndex] = {
+          ...next[existingIndex],
+          content: '已生成以下产物，可预览或一键下载 ZIP:',
+          outputFiles: sortedFiles,
+          timestamp: now(),
+        };
       }
-      const next = [...prev];
-      const existing = next[existingIndex];
-      const merged = Array.from(new Set([...(existing.outputFiles || []), ...sortedFiles]))
-        .sort((a, b) => a.localeCompare(b, 'zh-CN'));
-      next[existingIndex] = {
-        ...existing,
-        content: '已生成以下产物，可预览或一键下载 ZIP:',
-        outputFiles: merged,
-        timestamp: now(),
-      };
       return next;
     });
   }, []);
@@ -453,7 +472,8 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
                 node.duration_seconds = event.duration_seconds ?? null;
                 node.output_files = event.output_files ?? [];
                 if (event.output_files?.length) {
-                  upsertFileListMessage(event.output_files);
+                  const allFiles = next.flatMap((n) => n.output_files || []);
+                  upsertFileListMessage(allFiles);
                 }
               }
               if (event.type === 'node_failed') node.status = 'failed';
@@ -593,7 +613,7 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
 
   return (
     <div className="chat-view">
-      <div className="chat-messages">
+       <div className="chat-messages" ref={chatContainerRef}>
         {isEmpty ? (
           <div className="chat-empty">
             <div className="chat-empty-icon">
@@ -616,6 +636,11 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
           ))
         )}
         <div ref={messagesEndRef} />
+        {showScrollBtn && (
+          <button onClick={scrollToBottom} className="scroll-to-bottom-btn" title="回到底部">
+            ↓
+          </button>
+        )}
       </div>
       <ChatInput onSend={handleSend} onStop={handleStop} disabled={processing} canStop={canStop} canResume={canResume} />
     </div>

@@ -2,6 +2,7 @@
 import asyncio
 import io
 import json
+import shutil
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -257,6 +258,31 @@ async def get_node_outputs(batch_id: str, node_id: str):
                 "name": f.name,
             })
     return {"files": sorted(files, key=lambda x: x["path"])}
+
+
+@router.delete("/batches/{batch_id}")
+async def delete_batch(batch_id: str):
+    """删除批次及其所有产物"""
+    sm = StateManager(batch_id)
+    if not sm.load():
+        raise HTTPException(404, "批次不存在")
+    batch_dir = DOCS_OUTPUT / batch_id
+    if batch_dir.exists():
+        shutil.rmtree(batch_dir)
+    return {"batch_id": batch_id, "status": "deleted"}
+
+
+@router.post("/batches/{batch_id}/archive")
+async def archive_batch(batch_id: str):
+    """归档批次（标记为 archived，不从磁盘删除）"""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+    status["archived"] = True
+    status["updated_at"] = datetime.now(timezone.utc).isoformat()
+    sm._write_status(status)
+    return {"batch_id": batch_id, "status": "archived"}
 
 
 # ── ZIP Export ───────────────────────────────────────────

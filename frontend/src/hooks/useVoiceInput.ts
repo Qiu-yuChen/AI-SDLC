@@ -47,26 +47,31 @@ export function useVoiceInput(onResult: (text: string) => void): UseVoiceInputRe
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'zh-CN';
-    let finalText = '';
+    let lastFinal = '';
 
     recognition.onresult = (event: any) => {
+      let final = '';
       let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const r = event.results[i];
-        if (r.isFinal) finalText += r[0].transcript;
-        else interim += r[0].transcript;
+        if (r.isFinal) {
+          final += r[0].transcript;
+        } else {
+          interim += r[0].transcript;
+        }
       }
-      resultCallbackRef.current(finalText + interim);
+      lastFinal = final;
+      resultCallbackRef.current(final + interim);
     };
 
     recognition.onerror = () => stopAll();
     recognition.onend = () => {
-      if (listeningRef.current) {
-        if (finalText) resultCallbackRef.current(finalText);
-        listeningRef.current = false;
-        setIsListening(false);
-        recognitionRef.current = null;
+      if (listeningRef.current && lastFinal) {
+        resultCallbackRef.current(lastFinal);
       }
+      listeningRef.current = false;
+      setIsListening(false);
+      recognitionRef.current = null;
     };
 
     recognitionRef.current = recognition;

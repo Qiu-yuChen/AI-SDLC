@@ -114,6 +114,24 @@ def create_codegen_agent() -> Agent:
 - 每个函数有 docstring
 - 错误处理完善（try/except）
 - 命名遵循 PEP 8
+
+⚠️ 端口规范（非常重要）：
+- app.py 中禁止硬编码端口，必须随机选择空闲端口：
+  import socket
+  def find_free_port():
+      s = socket.socket(); s.bind(("127.0.0.1", 0))
+      port = s.getsockname()[1]; s.close()
+      return port
+  PORT = find_free_port()
+  uvicorn.run(app, host="127.0.0.1", port=PORT)
+- 禁止使用 8000 或任何固定端口号
+                                                                                               
+                                                                                                                                    
+管理员系统要求：                                                                                                               
+- 每个生成的项目必须包含后台管理员系统                                                                                     
+- 管理员可查看/管理所有数据（用户、记录、配置等）                                                                           
+- 管理员后台独立于普通用户界面，有权限校验                                                                                 
+- 管理员默认账号: admin / admin123
 - CSV 作为数据库（赛题要求）
 
 ⚠️ 工具调用规范（非常重要）：

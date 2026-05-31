@@ -24,7 +24,7 @@ export function PromptOptimizer({ onImport, onClose }: Props) {
   const [round, setRound] = useState(0);
 
   const handleVoiceResult = useCallback((transcript: string) => {
-    setInput((prev) => prev ? `${prev} ${transcript}` : transcript);
+    setInput(transcript);
   }, []);
 
   const { isListening, isSupported, toggleListening } = useVoiceInput(handleVoiceResult);

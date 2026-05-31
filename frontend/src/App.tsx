@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, PanelLeftClose, PanelLeft, Zap, Sparkles, Sun, Moon } from 'lucide-react';
+import { Plus, Search, PanelLeftClose, PanelLeft, Zap, Sparkles, Sun, Moon, Trash2, Archive } from 'lucide-react';
 import { ChatView } from './components/ChatView';
 import { PromptOptimizer } from './components/PromptOptimizer';
-import { listBatches } from './api/client';
+import { listBatches, deleteBatch } from './api/client';
 import type { BatchListItem } from './types';
 
 export default function App() {
@@ -137,41 +137,37 @@ export default function App() {
           </div>
           <div className="space-y-0.5">
             {filteredBatches.map((b) => (
-              <button
-                key={b.batch_id}
-                onClick={() => handleSelectBatch(b.batch_id)}
-                className="w-full text-left px-3 py-2.5 rounded-lg transition text-sm"
-                style={{
-                  background: activeBatchId === b.batch_id ? 'var(--sidebar-active)' : 'transparent',
-                  color: activeBatchId === b.batch_id ? '#fff' : '#c0c0c0',
-                }}
-              >
-                <div className="truncate font-medium">{b.project_name}</div>
-                <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-xs truncate max-w-[140px]" style={{ color: '#707070' }}>
-                    {b.batch_id.split('_').slice(-1)}
-                  </span>
-                  <span
-                    className="text-xs px-1.5 py-0.5 rounded-full"
-                    style={{
-                      background:
-                        b.status === 'completed' ? 'rgba(16,163,127,0.2)' :
-                        b.status === 'running' ? 'rgba(59,130,246,0.2)' :
-                        b.status === 'stopped' ? 'rgba(245,158,11,0.2)' :
-                        b.status === 'failed' ? 'rgba(239,68,68,0.2)' :
-                        'rgba(128,128,128,0.2)',
-                      color:
-                        b.status === 'completed' ? '#10a37f' :
-                        b.status === 'running' ? '#3b82f6' :
-                        b.status === 'stopped' ? '#f59e0b' :
-                        b.status === 'failed' ? '#ef4444' :
-                        '#a0a0a0',
-                    }}
-                  >
-                    {b.status}
-                  </span>
-                </div>
-              </button>
+              <div key={b.batch_id} className="group relative">
+                <button
+                  onClick={() => handleSelectBatch(b.batch_id)}
+                  className="w-full text-left px-3 py-2.5 rounded-lg transition text-sm"
+                  style={{
+                    background: activeBatchId === b.batch_id ? 'var(--sidebar-active)' : 'transparent',
+                    color: activeBatchId === b.batch_id ? '#fff' : '#c0c0c0',
+                  }}
+                >
+                  <div className="truncate font-medium">{b.project_name}</div>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-xs truncate max-w-[120px]" style={{ color: '#707070' }}>
+                      {new Date(b.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
+                    </span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{
+                      background: b.status === 'completed' ? 'rgba(16,163,127,0.2)' : b.status === 'running' ? 'rgba(59,130,246,0.2)' :
+                        b.status === 'stopped' ? 'rgba(245,158,11,0.2)' : b.status === 'failed' ? 'rgba(239,68,68,0.2)' : 'rgba(128,128,128,0.2)',
+                      color: b.status === 'completed' ? '#10a37f' : b.status === 'running' ? '#3b82f6' :
+                        b.status === 'stopped' ? '#f59e0b' : b.status === 'failed' ? '#ef4444' : '#a0a0a0',
+                    }}>{b.status}</span>
+                  </div>
+                </button>
+                <button
+                  onClick={async (e) => { e.stopPropagation(); await deleteBatch(b.batch_id); loadBatches(); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 transition"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="删除"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         </div>

@@ -939,3 +939,26 @@ body {
   border: 1px solid var(--border);
   color: var(--text-primary);
 }
+.scroll-to-bottom-btn {
+  position: sticky;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(16,163,127,0.3);
+  animation: fadeIn 0.2s ease;
+  z-index: 10;
+}
+.scroll-to-bottom-btn:hover {
+  background: var(--accent-hover);
+}
