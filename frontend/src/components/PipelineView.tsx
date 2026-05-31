@@ -31,21 +31,21 @@ function StatusIcon({ status }: { status: NodeStatus }) {
   }
 }
 
-function QualityBar({ score }: { score: number | null }) {
-  if (score === null || score === undefined) return null;
-  const level = score >= 80 ? '#10a37f' : score >= 60 ? '#f59e0b' : '#ef4444';
-  return (
-    <div className="mt-2 w-full">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>质量</span>
-        <span className="text-xs font-semibold" style={{ color: level }}>{Math.round(score)}/100</span>
-      </div>
-      <div className="quality-bar">
-        <div className="quality-bar-fill" style={{ width: `${Math.min(score, 100)}%`, background: `linear-gradient(90deg, ${level}, ${level}88)` }} />
-      </div>
-    </div>
-  );
-}
+// function QualityBar({ score }: { score: number | null }) {
+//   if (score === null || score === undefined) return null;
+//   const level = score >= 80 ? '#10a37f' : score >= 60 ? '#f59e0b' : '#ef4444';
+//   return (
+//     <div className="mt-2 w-full">
+//       <div className="flex items-center justify-between mb-1">
+//         <span className="text-xs" style={{ color: 'var(--text-muted)' }}>质量</span>
+//         <span className="text-xs font-semibold" style={{ color: level }}>{Math.round(score)}/100</span>
+//       </div>
+//       <div className="quality-bar">
+//         <div className="quality-bar-fill" style={{ width: `${Math.min(score, 100)}%`, background: `linear-gradient(90deg, ${level}, ${level}88)` }} />
+//       </div>
+//     </div>
+//   );
+// }
 
 export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: Props) {
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -141,7 +141,7 @@ export function PipelineView({ nodes, currentNode, batchId, mode, onRefresh }: P
                    '等待中'}
                 </span>
 
-                <QualityBar score={node?.quality_score ?? null} />
+                {/* <QualityBar score={node?.quality_score ?? null} /> */}
 
                 {isCompleted && node?.output_files?.length > 0 && (
                   <span className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>

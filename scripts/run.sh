@@ -11,7 +11,7 @@ echo ""
 # ── 端口清理 ──
 echo "🧹 清理旧进程..."
 lsof -ti:7070 2>/dev/null | xargs -r kill -9 2>/dev/null || true
-lsof -ti:5050 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+lsof -ti:3000 2>/dev/null | xargs -r kill -9 2>/dev/null || true
 sleep 0.5
 
 # ── Backend ──
@@ -62,7 +62,7 @@ echo "   前端 PID: $FRONTEND_PID"
 echo ""
 echo "✅ 启动完成！"
 echo "   后端: http://localhost:7070"
-echo "   前端: http://localhost:5050"
+echo "   前端: http://localhost:3000"
 echo "   API文档: http://localhost:7070/docs"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
@@ -71,7 +71,7 @@ echo "按 Ctrl+C 停止所有服务"
 cleanup() {
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
     lsof -ti:7070 2>/dev/null | xargs -r kill -9 2>/dev/null
-    lsof -ti:5050 2>/dev/null | xargs -r kill -9 2>/dev/null
+    lsof -ti:3000 2>/dev/null | xargs -r kill -9 2>/dev/null
     exit
 }
 trap cleanup SIGINT SIGTERM

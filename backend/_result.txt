@@ -1,0 +1,82 @@
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="run_python">
+<｜｜DSML｜｜parameter name="code" string="true">import py_compile
+import tempfile
+import os
+
+# 创建一个最小 utils.py 测试编译
+code = """
+import os
+import threading
+from datetime import datetime, timedelta, date
+
+_file_locks = {}
+_lock_for_locks = threading.Lock()
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+def get_data_path(filename):
+    return os.path.join(DATA_DIR, filename)
+
+def get_file_lock(file_path):
+    global _file_locks
+    with _lock_for_locks:
+        if file_path not in _file_locks:
+            _file_locks[file_path] = threading.Lock()
+        return _file_locks[file_path]
+
+def today_str():
+    return datetime.now().strftime("%Y-%m-%d")
+
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def is_workday(d=None):
+    if d is None:
+        d = date.today()
+    return d.weekday() < 5
+
+def get_day_type(d=None):
+    return "workday" if is_workday(d) else "weekend"
+
+def generate_reservation_id(date_str, seq):
+    date_part = date_str.replace("-", "")
+    return f"R{date_part}{seq:03d}"
+
+def generate_payment_id(date_str, seq):
+    date_part = date_str.replace("-", "")
+    return f"P{date_part}{seq:03d}"
+
+def generate_ketuo_id(seq):
+    return f"K{seq:06d}"
+
+def validate_date_not_past(date_str):
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        return d >= date.today()
+    except ValueError:
+        return False
+
+def validate_date_within_7_days(date_str):
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        today = date.today()
+        return today <= d <= today + timedelta(days=7)
+    except ValueError:
+        return False
+"""
+
+tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False)
+tmp.write(code)
+tmp.close()
+
+try:
+    py_compile.compile(tmp.name, doraise=True)
+    print("✅ 语法检查通过")
+except py_compile.PyCompileError as e:
+    print(f"❌ 语法错误: {e}")
+finally:
+    os.unlink(tmp.name)
+</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>

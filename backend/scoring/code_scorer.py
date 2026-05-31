@@ -45,7 +45,7 @@ class CodeScorer:
 
         for f in py_files:
             try:
-                ast.parse(f.read_text())
+                ast.parse(f.read_text(encoding="utf-8"))
             except SyntaxError as e:
                 errors.append(f"{f.name}:L{e.lineno} - {e.msg}")
 
@@ -75,7 +75,7 @@ class CodeScorer:
         all_funcs = []
         for f in self.code_dir.rglob("*.py"):
             try:
-                blocks = cc_visit(f.read_text())
+                blocks = cc_visit(f.read_text(encoding="utf-8"))
                 if blocks:
                     all_funcs.extend([
                         {
@@ -135,7 +135,7 @@ class CodeScorer:
         scores = []
         for f in self.code_dir.rglob("*.py"):
             try:
-                mi = mi_visit(f.read_text(), multi=True)
+                mi = mi_visit(f.read_text(encoding="utf-8"), multi=True)
                 scores.append(mi)
             except Exception:
                 pass
@@ -197,7 +197,7 @@ class CodeScorer:
 
         for f in self.code_dir.rglob("*.py"):
             try:
-                tree = ast.parse(f.read_text())
+                tree = ast.parse(f.read_text(encoding="utf-8"))
                 for node in ast.walk(tree):
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         total_funcs += 1
@@ -239,7 +239,7 @@ class CodeScorer:
 
         for f in self.code_dir.rglob("*.py"):
             try:
-                tree = ast.parse(f.read_text())
+                tree = ast.parse(f.read_text(encoding="utf-8"))
                 for node in ast.walk(tree):
                     if isinstance(
                         node,
@@ -270,7 +270,7 @@ class CodeScorer:
             return 0.0, "无 Python 文件"
 
         total_lines = sum(
-            len(f.read_text().splitlines()) for f in py_files
+            len(f.read_text(encoding="utf-8").splitlines()) for f in py_files
         )
         avg_lines = total_lines / len(py_files)
 

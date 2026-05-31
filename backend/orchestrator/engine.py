@@ -16,6 +16,10 @@ class OrchestratorEngine:
     def __init__(self, batch_id: str):
         self.batch_id = batch_id
         self.sm = StateManager(batch_id)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
 
     # ── Auto Mode ──────────────────────────────────────────
 
@@ -139,23 +143,6 @@ class OrchestratorEngine:
                 "duration_seconds": duration,
                 "output_files": output_files,
             })
-
-            # Run quality review after node completion
-            try:
-                from agents.quality_agent import run_quality_review
-                quality = run_quality_review(self.batch_id, node_id)
-                if isinstance(quality, dict) and "score" in quality:
-                    total = quality.get("total", 100)
-                    pct = round(quality["score"] / total * 100, 1) if total > 0 else 0
-                    self.sm.update_node(node_id, "completed", quality_score=pct)
-                    self._broadcast("quality_review", {
-                        "node_id": node_id,
-                        "name": node_name,
-                        "score": pct,
-                        "details": quality.get("issues", []),
-                    })
-            except Exception:
-                pass  # Quality review is non-critical
 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
@@ -302,15 +289,14 @@ class OrchestratorEngine:
     # ── WebSocket Broadcast Helper ─────────────────────────
 
     def _broadcast(self, event_type: str, data: dict):
-        """Push event to WebSocket clients"""
+        """Push event to WebSocket clients (thread-safe)"""
         event = {"type": event_type, "batch_id": self.batch_id, **data}
-        # Run async broadcast in sync context
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(ws_manager.broadcast(self.batch_id, event))
-            else:
-                loop.run_until_complete(ws_manager.broadcast(self.batch_id, event))
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(ws_manager.broadcast(self.batch_id, event))
         except RuntimeError:
-            # No event loop — run in new one
-            asyncio.run(ws_manager.broadcast(self.batch_id, event))
+            loop = self._loop
+            if loop and loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    ws_manager.broadcast(self.batch_id, event), loop
+                )

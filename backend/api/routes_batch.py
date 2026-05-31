@@ -1,4 +1,5 @@
 """Batch Management REST API"""
+import asyncio
 import uuid
 import json
 from datetime import datetime, timezone
@@ -67,7 +68,7 @@ async def list_batches():
             if d.is_dir():
                 sf = d / "batch_status.json"
                 if sf.exists():
-                    status = json.loads(sf.read_text())
+                    status = json.loads(sf.read_text(encoding="utf-8"))
                     batches.append({
                         "batch_id": d.name,
                         "project_name": status.get("project_name", ""),
@@ -89,10 +90,8 @@ async def get_batch(batch_id: str):
 
 
 @router.post("/batches/{batch_id}/start")
-def start_batch(batch_id: str):
-    """启动自动执行（同步端点，避免 asyncio 事件循环与 CrewAI 冲突）"""
-    import asyncio, concurrent.futures
-
+async def start_batch(batch_id: str):
+    """启动自动执行（后台线程运行，立即返回）"""
     sm = StateManager(batch_id)
     status = sm.load()
     if not status:
@@ -101,15 +100,17 @@ def start_batch(batch_id: str):
         raise HTTPException(400, f"批次当前状态: {status.get('status')}")
 
     engine = OrchestratorEngine(batch_id)
-    engine.run_auto()
-    return {"batch_id": batch_id, "status": "completed"}
+    engine.set_loop(asyncio.get_running_loop())
+    asyncio.create_task(asyncio.to_thread(engine.run_auto))
+    return {"batch_id": batch_id, "status": "running"}
 
 
 @router.post("/batches/{batch_id}/next")
 async def execute_next_node(batch_id: str):
     """手动模式：执行下一个节点"""
     engine = OrchestratorEngine(batch_id)
-    result = engine.run_manual_step()
+    engine.set_loop(asyncio.get_running_loop())
+    result = await asyncio.to_thread(engine.run_manual_step)
     return result
 
 
@@ -117,7 +118,8 @@ async def execute_next_node(batch_id: str):
 async def retry_node(batch_id: str, node_id: str):
     """增量重试：重新执行指定节点"""
     engine = OrchestratorEngine(batch_id)
-    result = engine.retry_node(node_id)
+    engine.set_loop(asyncio.get_running_loop())
+    result = await asyncio.to_thread(engine.retry_node, node_id)
     return result
 
 
