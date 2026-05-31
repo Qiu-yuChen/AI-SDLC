@@ -328,6 +328,26 @@ body {
 .chat-attach-btn:hover {
   color: var(--accent);
 }
+.chat-attach-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.chat-stop-btn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.32);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), border-color var(--transition);
+}
+.chat-stop-btn:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.52);
+}
 .chat-send-btn {
   padding: 8px 14px;
   border-radius: 10px;

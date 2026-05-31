@@ -9,7 +9,7 @@ export interface FileAttachment {
 export interface PipelineNodeStatus {
   node_id: string;
   name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
   duration_seconds: number | null;
   output_files: string[];
   quality_score: number | null;

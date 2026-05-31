@@ -137,11 +137,13 @@ export default function App() {
                       background:
                         b.status === 'completed' ? 'rgba(16,163,127,0.2)' :
                         b.status === 'running' ? 'rgba(59,130,246,0.2)' :
+                        b.status === 'stopped' ? 'rgba(245,158,11,0.2)' :
                         b.status === 'failed' ? 'rgba(239,68,68,0.2)' :
                         'rgba(128,128,128,0.2)',
                       color:
                         b.status === 'completed' ? '#10a37f' :
                         b.status === 'running' ? '#3b82f6' :
+                        b.status === 'stopped' ? '#f59e0b' :
                         b.status === 'failed' ? '#ef4444' :
                         '#a0a0a0',
                     }}

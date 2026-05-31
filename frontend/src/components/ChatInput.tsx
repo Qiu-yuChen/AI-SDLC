@@ -1,19 +1,22 @@
 import { useState, useRef } from 'react';
-import { Send, Paperclip, X, FileText } from 'lucide-react';
+import { Play, Send, Square, Paperclip, X, FileText } from 'lucide-react';
 
 interface Props {
   onSend: (text: string, file?: File) => void;
+  onStop?: () => void;
   disabled?: boolean;
+  canStop?: boolean;
+  canResume?: boolean;
 }
 
-export function ChatInput({ onSend, disabled }: Props) {
+export function ChatInput({ onSend, onStop, disabled, canStop, canResume }: Props) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleSubmit() {
     if (disabled) return;
-    if (!text.trim() && !file) return;
+    if (!text.trim() && !file && !canResume) return;
     onSend(text.trim(), file || undefined);
     setText('');
     setFile(null);
@@ -56,6 +59,7 @@ export function ChatInput({ onSend, disabled }: Props) {
           onClick={() => fileInputRef.current?.click()}
           className="chat-attach-btn"
           title="上传 Markdown 文件"
+          disabled={disabled || canStop}
         >
           <Paperclip className="w-5 h-5" />
         </button>
@@ -64,16 +68,27 @@ export function ChatInput({ onSend, disabled }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息，或上传 .md 规格说明书..."
+          placeholder={canResume ? '输入补充指引后继续，或直接点击继续' : '输入消息，或上传 .md 规格说明书...'}
           className="chat-text-input"
-          disabled={disabled}
+          disabled={disabled || canStop}
         />
+        {canStop && (
+          <button
+            onClick={onStop}
+            className="chat-stop-btn"
+            title="停止当前生成"
+            type="button"
+          >
+            <Square className="w-4 h-4" />
+          </button>
+        )}
         <button
           onClick={handleSubmit}
-          disabled={disabled || (!text.trim() && !file)}
+          disabled={disabled || canStop || (!text.trim() && !file && !canResume)}
           className="chat-send-btn"
+          title={canResume ? '继续运行' : '发送'}
         >
-          <Send className="w-4 h-4" />
+          {canResume ? <Play className="w-4 h-4" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
     </div>

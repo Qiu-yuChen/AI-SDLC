@@ -2,9 +2,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Zap } from 'lucide-react';
 import { ChatInput } from './ChatInput';
 import { ChatMessage } from './ChatMessage';
-import { uploadSpec, createBatch, startBatch, getBatch, fetchScoringReport, connectWs } from '../api/client';
+import {
+  uploadSpec,
+  createBatch,
+  startBatch,
+  stopBatch,
+  resumeBatch,
+  getBatch,
+  fetchScoringReport,
+  connectWs,
+} from '../api/client';
 import type { ChatMessage as ChatMsg, PipelineNodeStatus, ReactLogEntry } from '../types/chat';
-import type { BatchStatus, WsEvent } from '../types';
+import type { BatchState, BatchStatus, WsEvent } from '../types';
 
 interface Props {
   batchId: string | null;
@@ -13,32 +22,62 @@ interface Props {
   onSpecConsumed?: () => void;
 }
 
-const NODE_ORDER = ['\u6982\u8981\u8BBE\u8BA1', '\u4EE3\u7801\u751F\u6210', '\u5355\u5143\u6D4B\u8BD5', '\u8D28\u91CF\u8BC4\u5206'];
+const NODE_ORDER = ['概要设计', '代码生成', '单元测试', '质量评分'];
 
 let msgId = 0;
 function nextId() { return `msg_${++msgId}_${Date.now()}`; }
 function now() { return new Date().toLocaleTimeString(); }
 
+function emptyNodes(): PipelineNodeStatus[] {
+  return NODE_ORDER.map((nid) => ({
+    node_id: nid,
+    name: nid,
+    status: 'pending',
+    duration_seconds: null,
+    output_files: [],
+    quality_score: null,
+  }));
+}
+
+function nodesFromBatch(batch: BatchStatus): PipelineNodeStatus[] {
+  return NODE_ORDER.map((nid) => {
+    const n = batch.nodes[nid];
+    return {
+      node_id: nid,
+      name: nid,
+      status: n?.status || 'pending',
+      duration_seconds: n?.duration_seconds ?? null,
+      output_files: n?.output_files ?? [],
+      quality_score: n?.quality_score ?? null,
+    };
+  });
+}
+
+function reactEntriesFromStep(event: WsEvent): ReactLogEntry[] {
+  const step = event.step;
+  if (!step) return [];
+  const entries: ReactLogEntry[] = [];
+  if (step.thought) entries.push({ type: 'thought', agent: event.name, content: step.thought });
+  if (step.action) entries.push({ type: 'action', agent: event.name, content: `调用: ${step.action}${step.action_input ? `(${step.action_input})` : ''}` });
+  if (step.observation) entries.push({ type: 'observation', agent: event.name, content: step.observation });
+  return entries;
+}
+
 export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [processing, setProcessing] = useState(false);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(batchId);
+  const [batchStatus, setBatchStatus] = useState<BatchState | null>(null);
   const [pipelineNodes, setPipelineNodes] = useState<PipelineNodeStatus[]>([]);
-  const [reactLogMsgId, setReactLogMsgId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const mountedRef = useRef(true);
+  const pipelineMsgIdRef = useRef<string | null>(null);
+  const reactLogMsgIdRef = useRef<string | null>(null);
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
-
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
-
   useEffect(() => { setCurrentBatchId(batchId); }, [batchId]);
-
-  useEffect(() => {
-    if (!importSpec) return;
-    handleImportSpec(importSpec);
-  }, [importSpec]);
 
   const addMsg = useCallback((msg: ChatMsg) => {
     if (!mountedRef.current) return;
@@ -50,63 +89,74 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
     setMessages((prev) => prev.map((m) => m.id === id ? updater(m) : m));
   }, []);
 
-  async function handleImportSpec(spec: string) {
-    setProcessing(true);
-    try {
-      const blob = new Blob([spec], { type: 'text/markdown' });
-      const file = new File([blob], 'generated_spec.md', { type: 'text/markdown' });
+  const upsertPipelineMessage = useCallback((nodes: PipelineNodeStatus[]) => {
+    if (!mountedRef.current) return;
+    setMessages((prev) => {
+      const existingIndex = prev.findIndex((m) => m.type === 'pipeline_status');
+      if (existingIndex >= 0) {
+        const next = prev.filter((m, idx) => m.type !== 'pipeline_status' || idx === existingIndex);
+        const idx = next.findIndex((m) => m.type === 'pipeline_status');
+        pipelineMsgIdRef.current = next[idx].id;
+        next[idx] = { ...next[idx], pipelineNodes: nodes, timestamp: now() };
+        return next;
+      }
+      const msg: ChatMsg = { id: nextId(), role: 'assistant', type: 'pipeline_status', content: '', pipelineNodes: nodes, timestamp: now() };
+      pipelineMsgIdRef.current = msg.id;
+      return [...prev, msg];
+    });
+  }, []);
 
-      addMsg({
-        id: nextId(), role: 'user', type: 'file_upload',
-        content: '通过一句话生成规格书',
-        file: { name: file.name, size: file.size },
-        timestamp: now(),
-      });
+  const upsertReactLogMessage = useCallback((entries: ReactLogEntry[]) => {
+    if (!mountedRef.current || entries.length === 0) return;
+    setMessages((prev) => {
+      const id = reactLogMsgIdRef.current;
+      const existingIndex = id ? prev.findIndex((m) => m.id === id) : prev.findIndex((m) => m.type === 'react_log');
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        const existing = next[existingIndex];
+        reactLogMsgIdRef.current = existing.id;
+        next[existingIndex] = { ...existing, reactLogs: [...(existing.reactLogs || []), ...entries], timestamp: now() };
+        return next;
+      }
+      const msg: ChatMsg = { id: nextId(), role: 'assistant', type: 'react_log', content: '', reactLogs: entries, timestamp: now() };
+      reactLogMsgIdRef.current = msg.id;
+      return [...prev, msg];
+    });
+  }, []);
 
-      const loadingId = nextId();
-      addMsg({
-        id: loadingId, role: 'assistant', type: 'text',
-        content: '⏳ 正在导入AI生成的规格书并启动开发流水线...',
-        timestamp: now(), loading: true,
-      });
+  const replaceReactLogMessage = useCallback((entries: ReactLogEntry[]) => {
+    if (!mountedRef.current || entries.length === 0) return;
+    setMessages((prev) => {
+      const existingIndex = prev.findIndex((m) => m.type === 'react_log');
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        const existing = next[existingIndex];
+        reactLogMsgIdRef.current = existing.id;
+        next[existingIndex] = { ...existing, reactLogs: entries, timestamp: now() };
+        return next;
+      }
+      const msg: ChatMsg = { id: nextId(), role: 'assistant', type: 'react_log', content: '', reactLogs: entries, timestamp: now() };
+      reactLogMsgIdRef.current = msg.id;
+      return [...prev, msg];
+    });
+  }, []);
 
-      const uploadResult = await uploadSpec(file);
-      const batch = await createBatch(uploadResult.filename, 'AI生成项目');
-
-      const nodes: PipelineNodeStatus[] = NODE_ORDER.map((nid) => ({
-        node_id: nid, name: nid, status: 'pending' as const,
-        duration_seconds: null, output_files: [], quality_score: null,
-      }));
-      setPipelineNodes(nodes);
-
-      updateMsg(loadingId, (m) => ({
-        ...m,
-        content: `✅ 已收到AI生成的规格说明书，正在启动开发流水线...\n\n🔄 概要设计 → 代码生成 → 单元测试 → 质量评分`,
-        loading: false,
-      }));
-
-      setCurrentBatchId(batch.batch_id);
-      onBatchCreated(batch.batch_id);
-      await startBatch(batch.batch_id);
-    } catch (e: any) {
-      addMsg({
-        id: nextId(), role: 'assistant', type: 'text',
-        content: `❌ 导入失败: ${e.message || '未知错误'}`,
-        timestamp: now(),
-      });
-    } finally {
-      setProcessing(false);
-      onSpecConsumed?.();
-    }
-  }
+  const upsertSingleMessage = useCallback((msg: ChatMsg, type: ChatMsg['type']) => {
+    setMessages((prev) => {
+      const existingIndex = prev.findIndex((m) => m.type === type);
+      if (existingIndex < 0) return [...prev, msg];
+      const next = [...prev];
+      next[existingIndex] = { ...next[existingIndex], ...msg, id: next[existingIndex].id };
+      return next;
+    });
+  }, []);
 
   async function handleFilePreview(msgId: string, batchId: string, filePath: string) {
     setMessages((prev) => prev.map((m) =>
       m.id === msgId ? { ...m, selectedFile: filePath, fileLoading: true, fileContent: '' } : m
     ));
     try {
-      const url = `/workspace/docs/已生成/${batchId}/${filePath}`;
-      const res = await fetch(url);
+      const res = await fetch(`/workspace/docs/已生成/${batchId}/${filePath}`);
       if (!res.ok) throw new Error('File not found');
       const text = await res.text();
       setMessages((prev) => prev.map((m) =>
@@ -119,72 +169,117 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
     }
   }
 
+  async function loadReactLogs(batchIdToLoad: string): Promise<ReactLogEntry[]> {
+    try {
+      const res = await fetch(`/workspace/docs/已生成/${batchIdToLoad}/execution_log.json`);
+      if (!res.ok) return [];
+      const logs = await res.json();
+      return logs
+        .filter((entry: any) => entry.event === 'react_step' && entry.step)
+        .flatMap((entry: any) => reactEntriesFromStep({
+          type: 'react_step',
+          batch_id: batchIdToLoad,
+          node_id: entry.node,
+          name: entry.name,
+          step: entry.step,
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function beginBatchFromFile(file: File, projectName: string, loadingId?: string) {
+    const uploadResult = await uploadSpec(file);
+    const batch = await createBatch(uploadResult.filename, projectName);
+    const nodes = emptyNodes();
+    setPipelineNodes(nodes);
+    upsertPipelineMessage(nodes);
+    setCurrentBatchId(batch.batch_id);
+    setBatchStatus('running');
+    onBatchCreated(batch.batch_id);
+    if (loadingId) {
+      updateMsg(loadingId, (m) => ({ ...m, content: `已收到规格说明书《${file.name}》，正在启动开发流水线...`, loading: false }));
+    }
+    await startBatch(batch.batch_id);
+  }
+
+  async function handleImportSpec(spec: string) {
+    setProcessing(true);
+    try {
+      const blob = new Blob([spec], { type: 'text/markdown' });
+      const file = new File([blob], 'generated_spec.md', { type: 'text/markdown' });
+      addMsg({ id: nextId(), role: 'user', type: 'file_upload', content: '通过一句话生成规格书', file: { name: file.name, size: file.size }, timestamp: now() });
+      const loadingId = nextId();
+      addMsg({ id: loadingId, role: 'assistant', type: 'text', content: '正在导入 AI 生成的规格书并启动开发流水线...', timestamp: now(), loading: true });
+      await beginBatchFromFile(file, 'AI生成项目', loadingId);
+    } catch (e: any) {
+      addMsg({ id: nextId(), role: 'assistant', type: 'text', content: `导入失败: ${e.message || '未知错误'}`, timestamp: now() });
+    } finally {
+      setProcessing(false);
+      onSpecConsumed?.();
+    }
+  }
+
   useEffect(() => {
-    if (!currentBatchId) { setMessages([]); setPipelineNodes([]); return; }
-    let loaded = false;
+    if (!importSpec) return;
+    handleImportSpec(importSpec);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importSpec]);
+
+  useEffect(() => {
+    if (!currentBatchId) {
+      setMessages([]);
+      setPipelineNodes([]);
+      setBatchStatus(null);
+      pipelineMsgIdRef.current = null;
+      reactLogMsgIdRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
     const bid = currentBatchId;
 
     async function loadExisting() {
       try {
-        const batch: BatchStatus = await getBatch(bid);
-        if (!mountedRef.current || loaded) return;
-        loaded = true;
+        const batch = await getBatch(bid);
+        if (!mountedRef.current || cancelled) return;
 
-        const initMsgs: ChatMsg[] = [];
-        initMsgs.push({
-          id: nextId(), role: 'user', type: 'text',
-          content: `\u4E0A\u4F20\u4E86\u89C4\u683C\u8BF4\u660E\u4E66: ${batch.spec_file}`,
-          timestamp: batch.created_at,
-        });
-        initMsgs.push({
-          id: nextId(), role: 'assistant', type: 'text',
-          content: `\u5DF2\u6536\u5230\u89C4\u683C\u8BF4\u660E\u4E66\u300A${batch.spec_file}\u300B\uFF0C\u6B63\u5728\u6267\u884C\u5F00\u53D1\u6D41\u6C34\u7EBF...`,
-          timestamp: batch.created_at,
-        });
+        const nodes = nodesFromBatch(batch);
+        const initMsgs: ChatMsg[] = [
+          { id: nextId(), role: 'user', type: 'text', content: `上传了规格说明书: ${batch.spec_file}`, timestamp: batch.created_at },
+          { id: nextId(), role: 'assistant', type: 'text', content: batch.status === 'stopped' ? `生成已停止，可输入补充指引后继续执行。` : `已收到规格说明书《${batch.spec_file}》，正在执行开发流水线...`, timestamp: batch.created_at },
+        ];
 
-        const nodes: PipelineNodeStatus[] = NODE_ORDER.map((nid) => {
-          const n = batch.nodes[nid];
-          return {
-            node_id: nid,
-            name: nid,
-            status: n?.status || 'pending',
-            duration_seconds: n?.duration_seconds ?? null,
-            output_files: n?.output_files ?? [],
-            quality_score: n?.quality_score ?? null,
-          };
-        });
-
-        const pipelineMsg: ChatMsg = {
-          id: nextId(), role: 'assistant', type: 'pipeline_status',
-          content: '', pipelineNodes: nodes, timestamp: now(),
-        };
+        const pipelineMsg: ChatMsg = { id: nextId(), role: 'assistant', type: 'pipeline_status', content: '', pipelineNodes: nodes, timestamp: now() };
+        pipelineMsgIdRef.current = pipelineMsg.id;
         initMsgs.push(pipelineMsg);
 
-        if (batch.status === 'completed' || batch.status === 'failed') {
-          const allFiles: string[] = [];
-          for (const n of Object.values(batch.nodes)) {
-            if (n.output_files) allFiles.push(...n.output_files);
-          }
-          if (allFiles.length > 0) {
-            initMsgs.push({
-              id: nextId(), role: 'assistant', type: 'file_list',
-              content: '\u2705 \u6D41\u6C34\u7EBF\u6267\u884C\u5B8C\u6210\uFF0C\u4EE5\u4E0B\u662F\u751F\u6210\u7684\u6587\u4EF6:',
-              outputFiles: allFiles, timestamp: now(),
-            });
-          }
+        const reactLogs = await loadReactLogs(bid);
+        if (reactLogs.length) {
+          const reactMsg: ChatMsg = { id: nextId(), role: 'assistant', type: 'react_log', content: '', reactLogs, timestamp: now() };
+          reactLogMsgIdRef.current = reactMsg.id;
+          initMsgs.push(reactMsg);
+        }
+
+        const allFiles = Object.values(batch.nodes).flatMap((n) => n.output_files || []);
+        if ((batch.status === 'completed' || batch.status === 'failed') && allFiles.length > 0) {
+          initMsgs.push({ id: nextId(), role: 'assistant', type: 'file_list', content: '流水线执行完成，以下是生成的文件:', outputFiles: allFiles, timestamp: now() });
         }
 
         setMessages(initMsgs);
         setPipelineNodes(nodes);
+        setBatchStatus(batch.status);
 
-        const scoringNode = batch.nodes['\u8D28\u91CF\u8BC4\u5206'];
+        const scoringNode = batch.nodes['质量评分'];
         if (scoringNode?.status === 'completed') {
           try {
             const report = await fetchScoringReport(bid);
-            if (mountedRef.current) {
-              initMsgs.push({
-                id: nextId(), role: 'assistant', type: 'scoring_report',
-                content: '\u2705 \u8D28\u91CF\u8BC4\u5206\u5DF2\u5B8C\u6210',
+            if (!cancelled && mountedRef.current) {
+              upsertSingleMessage({
+                id: nextId(),
+                role: 'assistant',
+                type: 'scoring_report',
+                content: '质量评分已完成',
                 scoring: {
                   composite_score: Math.round(report.composite_score),
                   stars: '',
@@ -194,8 +289,7 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
                   repozero_score: Math.round(report.repozero_score?.total_score ?? 0),
                 },
                 timestamp: now(),
-              });
-              setMessages([...initMsgs]);
+              }, 'scoring_report');
             }
           } catch { /* no scoring report */ }
         }
@@ -203,183 +297,180 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
     }
 
     loadExisting();
+    return () => { cancelled = true; };
+  }, [currentBatchId, upsertSingleMessage]);
 
-    return () => { loaded = true; };
-  }, [currentBatchId]);
+  useEffect(() => {
+    if (!currentBatchId || !['created', 'running'].includes(batchStatus || '')) return;
+
+    let cancelled = false;
+    const bid = currentBatchId;
+
+    async function refreshSnapshot() {
+      try {
+        const batch = await getBatch(bid);
+        if (cancelled || !mountedRef.current) return;
+        const nodes = nodesFromBatch(batch);
+        setPipelineNodes(nodes);
+        setBatchStatus(batch.status);
+        upsertPipelineMessage(nodes);
+
+        const reactLogs = await loadReactLogs(bid);
+        if (!cancelled && mountedRef.current && reactLogs.length) {
+          replaceReactLogMessage(reactLogs);
+        }
+      } catch { /* keep the live websocket state */ }
+    }
+
+    refreshSnapshot();
+    const timer = window.setInterval(refreshSnapshot, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentBatchId, batchStatus, upsertPipelineMessage, replaceReactLogMessage]);
 
   useEffect(() => {
     if (!currentBatchId) return;
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-
-    const isActive = true;
+    wsRef.current?.close();
+    wsRef.current = null;
+    let closed = false;
 
     function connect() {
-      if (!mountedRef.current) return;
-      const ws = connectWs(currentBatchId!, (event: WsEvent) => {
+      if (!mountedRef.current || closed || !currentBatchId) return;
+      const ws = connectWs(currentBatchId, (event: WsEvent) => {
         if (!mountedRef.current) return;
-        setPipelineNodes((prev) => {
-          const idx = prev.findIndex((n) => n.node_id === event.node_id);
-          if (idx === -1) return prev;
-          const updated = [...prev];
-          const node = { ...updated[idx] };
 
-          switch (event.type) {
-            case 'node_start':
-              node.status = 'running';
-              break;
-            case 'node_completed':
-              node.status = 'completed';
-              node.duration_seconds = event.duration_seconds ?? null;
-              node.output_files = event.output_files ?? [];
-              break;
-            case 'node_failed':
-              node.status = 'failed';
-              break;
-          }
-          updated[idx] = node;
-
-          addMsg({
-            id: nextId(), role: 'assistant', type: 'pipeline_status',
-            content: '', pipelineNodes: updated, timestamp: now(),
-          });
-
-          if (event.type === 'react_step' && event.step) {
-            const entries: ReactLogEntry[] = [];
-            if (event.step.thought) {
-              entries.push({ type: 'thought', agent: event.name, content: event.step.thought });
-            }
-            if (event.step.action) {
-              entries.push({ type: 'action', agent: event.name, content: `调用: ${event.step.action}(${event.step.action_input || ''})` });
-            }
-            if (event.step.observation) {
-              const obs = event.step.observation;
-              entries.push({ type: 'observation', agent: event.name, content: obs.length > 300 ? obs.substring(0, 300) + '...' : obs });
-            }
-            if (entries.length > 0) {
-              if (!reactLogMsgId) {
-                const msgId = nextId();
-                setReactLogMsgId(msgId);
-                addMsg({
-                  id: msgId, role: 'assistant', type: 'react_log',
-                  content: '', reactLogs: entries, timestamp: now(),
-                });
-              } else {
-                setMessages((prev) => prev.map((m) =>
-                  m.id === reactLogMsgId ? { ...m, reactLogs: [...(m.reactLogs || []), ...entries] } : m
-                ));
-              }
-            }
-          } else if (event.type === 'node_start' || event.type === 'node_completed' || event.type === 'node_failed') {
-            setReactLogMsgId(null);
-          }
-
-          if (event.type === 'node_completed' && event.node_id === '\u8D28\u91CF\u8BC4\u5206') {
-            fetchScoringReport(currentBatchId!)
-              .then((report) => {
-                if (!mountedRef.current) return;
-                addMsg({
-                  id: nextId(), role: 'assistant', type: 'scoring_report',
-                  content: '\u2705 \u8D28\u91CF\u8BC4\u5206\u5DF2\u5B8C\u6210',
-                  scoring: {
-                    composite_score: Math.round(report.composite_score),
-                    stars: '',
-                    design_score: Math.round(report.design_score?.total_score ?? 0),
-                    code_score: Math.round(report.code_score?.total_score ?? 0),
-                    test_score: Math.round(report.test_score?.total_score ?? 0),
-                    repozero_score: Math.round(report.repozero_score?.total_score ?? 0),
-                  },
-                  timestamp: now(),
-                });
-
-                const allFiles: string[] = [];
-                updated.forEach((n) => { allFiles.push(...n.output_files); });
-                if (allFiles.length > 0) {
-                  addMsg({
-                    id: nextId(), role: 'assistant', type: 'file_list',
-                    content: '\u2705 \u6D41\u6C34\u7EBF\u6267\u884C\u5B8C\u6210\uFF0C\u4EE5\u4E0B\u662F\u751F\u6210\u7684\u6587\u4EF6:',
-                    outputFiles: allFiles, timestamp: now(),
-                  });
-                }
-              })
-              .catch(() => {});
-          }
-
-          return updated;
-        });
-      }, () => {
-        if (isActive && mountedRef.current) {
-          setTimeout(connect, 3000);
+        if (event.type === 'react_step') {
+          upsertReactLogMessage(reactEntriesFromStep(event));
+          return;
         }
+
+        if (event.type === 'batch_resumed') {
+          setBatchStatus('running');
+          addMsg({ id: nextId(), role: 'assistant', type: 'text', content: '已继续执行生成任务。', timestamp: now() });
+          return;
+        }
+
+        if (event.type === 'batch_stopped') {
+          setBatchStatus('stopped');
+        }
+
+        if (['node_start', 'node_completed', 'node_failed', 'node_stopped', 'batch_stopped'].includes(event.type)) {
+          setPipelineNodes((prev) => {
+            const next = prev.length ? [...prev] : emptyNodes();
+            const idx = next.findIndex((n) => n.node_id === event.node_id);
+            if (idx >= 0) {
+              const node = { ...next[idx] };
+              if (event.type === 'node_start') node.status = 'running';
+              if (event.type === 'node_completed') {
+                node.status = 'completed';
+                node.duration_seconds = event.duration_seconds ?? null;
+                node.output_files = event.output_files ?? [];
+              }
+              if (event.type === 'node_failed') node.status = 'failed';
+              if (event.type === 'node_stopped' || event.type === 'batch_stopped') node.status = 'stopped';
+              next[idx] = node;
+            }
+            upsertPipelineMessage(next);
+            return next;
+          });
+        }
+
+        if (event.type === 'node_start') setBatchStatus('running');
+        if (event.type === 'node_failed') setBatchStatus('failed');
+        if (event.type === 'node_stopped') setBatchStatus('stopped');
+
+        if (event.type === 'node_completed' && event.node_id === '质量评分') {
+          setBatchStatus('completed');
+          fetchScoringReport(currentBatchId)
+            .then((report) => {
+              if (!mountedRef.current) return;
+              upsertSingleMessage({
+                id: nextId(),
+                role: 'assistant',
+                type: 'scoring_report',
+                content: '质量评分已完成',
+                scoring: {
+                  composite_score: Math.round(report.composite_score),
+                  stars: '',
+                  design_score: Math.round(report.design_score?.total_score ?? 0),
+                  code_score: Math.round(report.code_score?.total_score ?? 0),
+                  test_score: Math.round(report.test_score?.total_score ?? 0),
+                  repozero_score: Math.round(report.repozero_score?.total_score ?? 0),
+                },
+                timestamp: now(),
+              }, 'scoring_report');
+            })
+            .catch(() => {});
+        }
+      }, () => {
+        if (!closed && mountedRef.current) setTimeout(connect, 3000);
       });
       wsRef.current = ws;
     }
 
     connect();
-    return () => { wsRef.current?.close(); wsRef.current = null; };
-  }, [currentBatchId, addMsg]);
+    return () => {
+      closed = true;
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [currentBatchId, addMsg, upsertPipelineMessage, upsertReactLogMessage, upsertSingleMessage]);
+
+  async function handleStop() {
+    if (!currentBatchId) return;
+    setProcessing(true);
+    try {
+      await stopBatch(currentBatchId);
+      onBatchCreated(currentBatchId);
+      setBatchStatus('stopped');
+      setPipelineNodes((prev) => {
+        const next = prev.map((node) => node.status === 'running' ? { ...node, status: 'stopped' as const } : node);
+        upsertPipelineMessage(next);
+        return next;
+      });
+      addMsg({ id: nextId(), role: 'assistant', type: 'text', content: '已停止当前生成。你可以补充指引后继续运行。', timestamp: now() });
+    } catch (e: any) {
+      addMsg({ id: nextId(), role: 'assistant', type: 'text', content: `停止失败: ${e.message || '未知错误'}`, timestamp: now() });
+    } finally {
+      setProcessing(false);
+    }
+  }
 
   async function handleSend(text: string, file?: File) {
-    if (!file && !text.trim()) return;
+    if (!file && !text.trim() && batchStatus !== 'stopped') return;
     setProcessing(true);
 
     try {
+      if (batchStatus === 'stopped' && currentBatchId && !file) {
+        if (text.trim()) addMsg({ id: nextId(), role: 'user', type: 'text', content: text, timestamp: now() });
+        addMsg({ id: nextId(), role: 'assistant', type: 'text', content: text.trim() ? '已追加指引，继续从断点执行。' : '继续从断点执行。', timestamp: now() });
+        setBatchStatus('running');
+        await resumeBatch(currentBatchId, text.trim());
+        onBatchCreated(currentBatchId);
+        return;
+      }
+
       if (file) {
-        addMsg({
-          id: nextId(), role: 'user', type: 'file_upload',
-          content: text || `\u4E0A\u4F20\u4E86\u89C4\u683C\u8BF4\u660E\u4E66`,
-          file: { name: file.name, size: file.size },
-          timestamp: now(),
-        });
-
+        addMsg({ id: nextId(), role: 'user', type: 'file_upload', content: text || '上传了规格说明书', file: { name: file.name, size: file.size }, timestamp: now() });
         const loadingId = nextId();
-        addMsg({
-          id: loadingId, role: 'assistant', type: 'text',
-          content: '\u23F3 \u6B63\u5728\u4E0A\u4F20\u5E76\u542F\u52A8\u5F00\u53D1\u6D41\u6C34\u7EBF...',
-          timestamp: now(), loading: true,
-        });
-
-        const uploadResult = await uploadSpec(file);
-        const batch = await createBatch(uploadResult.filename, file.name.replace('.md', ''));
-
-        const nodes: PipelineNodeStatus[] = NODE_ORDER.map((nid) => ({
-          node_id: nid, name: nid, status: 'pending' as const,
-          duration_seconds: null, output_files: [], quality_score: null,
-        }));
-        setPipelineNodes(nodes);
-
-        updateMsg(loadingId, (m) => ({
-          ...m,
-          content: `\u2705 \u5DF2\u6536\u5230\u89C4\u683C\u8BF4\u660E\u4E66\u300A${file.name}\u300B\uFF0C\u6B63\u5728\u542F\u52A8\u5F00\u53D1\u6D41\u6C34\u7EBF...\n\n\uD83D\uDD04 \u6982\u8981\u8BBE\u8BA1 \u2192 \u4EE3\u7801\u751F\u6210 \u2192 \u5355\u5143\u6D4B\u8BD5 \u2192 \u8D28\u91CF\u8BC4\u5206`,
-          loading: false,
-        }));
-
-        setCurrentBatchId(batch.batch_id);
-        onBatchCreated(batch.batch_id);
-
-        await startBatch(batch.batch_id);
+        addMsg({ id: loadingId, role: 'assistant', type: 'text', content: '正在上传并启动开发流水线...', timestamp: now(), loading: true });
+        await beginBatchFromFile(file, file.name.replace('.md', ''), loadingId);
       } else {
-        addMsg({
-          id: nextId(), role: 'user', type: 'text',
-          content: text, timestamp: now(),
-        });
-        addMsg({
-          id: nextId(), role: 'assistant', type: 'text',
-          content: '\u8BF7\u4E0A\u4F20 .md \u89C4\u683C\u8BF4\u660E\u4E66\u4EE5\u542F\u52A8\u5F00\u53D1\u6D41\u6C34\u7EBF\u3002\u70B9\u51FB\u5DE6\u4FA7 \uD83D\uDCCE \u6309\u94AE\u9009\u62E9\u6587\u4EF6\u3002',
-          timestamp: now(),
-        });
+        addMsg({ id: nextId(), role: 'user', type: 'text', content: text, timestamp: now() });
+        addMsg({ id: nextId(), role: 'assistant', type: 'text', content: '请上传 .md 规格说明书以启动开发流水线。', timestamp: now() });
       }
     } catch (e: any) {
-      addMsg({
-        id: nextId(), role: 'assistant', type: 'text',
-        content: `\u274C \u64CD\u4F5C\u5931\u8D25: ${e.message || '\u672A\u77E5\u9519\u8BEF'}`,
-        timestamp: now(),
-      });
+      addMsg({ id: nextId(), role: 'assistant', type: 'text', content: `操作失败: ${e.message || '未知错误'}`, timestamp: now() });
     } finally {
       setProcessing(false);
     }
   }
 
   const isEmpty = messages.length === 0;
+  const canStop = batchStatus === 'running' && !processing;
+  const canResume = batchStatus === 'stopped' && !processing;
 
   return (
     <div className="chat-view">
@@ -391,7 +482,7 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
             </div>
             <h2 className="text-xl font-bold mb-2">AI-SDLC</h2>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              \u4E0A\u4F20\u4EA7\u54C1\u89C4\u683C\u8BF4\u660E\u4E66\uFF08.md\uFF09\uFF0CAI \u81EA\u52A8\u5B8C\u6210\u8BBE\u8BA1\u3001\u7F16\u7801\u3001\u6D4B\u8BD5
+              上传产品规格说明书（.md），AI 自动完成设计、编码、测试
             </p>
           </div>
         ) : (
@@ -407,7 +498,7 @@ export function ChatView({ batchId, onBatchCreated, importSpec, onSpecConsumed }
         )}
         <div ref={messagesEndRef} />
       </div>
-      <ChatInput onSend={handleSend} disabled={processing} />
+      <ChatInput onSend={handleSend} onStop={handleStop} disabled={processing} canStop={canStop} canResume={canResume} />
     </div>
   );
 }

@@ -40,6 +40,20 @@ export async function startBatch(batchId: string): Promise<void> {
   if (!res.ok) throw new Error(await res.text());
 }
 
+export async function stopBatch(batchId: string): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/stop`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function resumeBatch(batchId: string, guidance = ''): Promise<void> {
+  const res = await fetch(`${BASE}/batches/${batchId}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ guidance }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 export async function executeNext(batchId: string): Promise<void> {
   const res = await fetch(`${BASE}/batches/${batchId}/next`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());

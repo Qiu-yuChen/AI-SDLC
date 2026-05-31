@@ -34,7 +34,7 @@ class StateManager:
             "batch_id": self.batch_id,
             "project_name": project_name,
             "spec_file": spec_file,
-            "status": "created",     # created | running | completed | failed
+            "status": "created",     # created | running | completed | failed | stopped
             "current_node": None,
             "mode": "auto",          # auto | manual
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -43,7 +43,7 @@ class StateManager:
                 node: {
                     "node_id": node,
                     "name": NODE_NAMES[node],
-                    "status": "pending",  # pending | running | completed | failed
+                    "status": "pending",  # pending | running | completed | failed | stopped
                     "started_at": None,
                     "finished_at": None,
                     "duration_seconds": None,
@@ -111,8 +111,71 @@ class StateManager:
                 node["error"] = error
             batch["status"] = "failed"
 
+        elif status == "stopped":
+            node["finished_at"] = now
+            if error:
+                node["error"] = error
+            batch["status"] = "stopped"
+            batch["current_node"] = node_id
+
         batch["updated_at"] = now
         self._write_status(batch)
+
+    def stop_batch(self, reason: str = "Stopped by user") -> dict:
+        """Mark the batch and its active node as stopped."""
+        batch = self.load()
+        if not batch:
+            return {}
+
+        now = datetime.now(timezone.utc).isoformat()
+        current_node = batch.get("current_node") or self.get_current_node()
+        if current_node and current_node in batch["nodes"]:
+            node = batch["nodes"][current_node]
+            if node["status"] in ("pending", "running", "stopped"):
+                node["status"] = "stopped"
+                node["finished_at"] = now
+                node["updated_at"] = now
+                node["error"] = reason
+        batch["status"] = "stopped"
+        batch["current_node"] = current_node
+        batch["updated_at"] = now
+        batch["stopped_at"] = now
+        self._write_status(batch)
+        return batch
+
+    def resume_batch(self, guidance: str = "") -> dict:
+        """Prepare a stopped batch to continue from the first unfinished node."""
+        batch = self.load()
+        if not batch:
+            return {}
+
+        now = datetime.now(timezone.utc).isoformat()
+        for node_id in NODE_ORDER:
+            node = batch["nodes"][node_id]
+            if node["status"] in ("running", "stopped"):
+                node["status"] = "pending"
+                node["started_at"] = None
+                node["finished_at"] = None
+                node["duration_seconds"] = None
+                node["error"] = None
+                node["updated_at"] = now
+
+        if guidance.strip():
+            spec_path = DOCS_INPUT / batch["spec_file"]
+            if spec_path.exists():
+                with spec_path.open("a", encoding="utf-8") as f:
+                    f.write(
+                        "\n\n---\n\n"
+                        "## 用户追加指引\n\n"
+                        f"{guidance.strip()}\n"
+                    )
+
+        batch["status"] = "created"
+        batch["current_node"] = self._first_unfinished_node(batch)
+        batch["updated_at"] = now
+        batch.pop("stopped_at", None)
+        self._write_status(batch)
+        return batch
 
     def append_log(self, entry: dict):
         """Append an entry to execution_log.json"""
@@ -127,6 +190,12 @@ class StateManager:
         if not batch:
             return None
         # Return first non-completed node
+        for node_id in NODE_ORDER:
+            if batch["nodes"][node_id]["status"] != "completed":
+                return node_id
+        return None
+
+    def _first_unfinished_node(self, batch: dict) -> Optional[str]:
         for node_id in NODE_ORDER:
             if batch["nodes"][node_id]["status"] != "completed":
                 return node_id

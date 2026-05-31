@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from config import DOCS_INPUT, DOCS_OUTPUT, SRC_OUTPUT, TEST_OUTPUT
 from orchestrator.state_manager import StateManager
 from orchestrator.engine import OrchestratorEngine
+from orchestrator.task_control import task_control
 
 router = APIRouter(tags=["batches"])
 
@@ -33,6 +34,9 @@ class BatchResponse(BaseModel):
 
 class NodeActionRequest(BaseModel):
     batch_id: str
+
+class BatchResumeRequest(BaseModel):
+    guidance: str = ""
 
 
 # ── Routes ────────────────────────────────────────────────
@@ -96,11 +100,61 @@ async def start_batch(batch_id: str):
     status = sm.load()
     if not status:
         raise HTTPException(404, "批次不存在")
-    if status.get("status") in ("running", "completed"):
+    if status.get("status") in ("running", "completed", "stopped"):
         raise HTTPException(400, f"批次当前状态: {status.get('status')}")
 
+    if task_control.is_active(batch_id):
+        raise HTTPException(409, "批次仍在运行中")
+
+    stop_event = task_control.start(batch_id)
+    engine = OrchestratorEngine(batch_id, stop_event=stop_event)
+    engine.set_loop(asyncio.get_running_loop())
+    asyncio.create_task(asyncio.to_thread(engine.run_auto))
+    return {"batch_id": batch_id, "status": "running"}
+
+
+@router.post("/batches/{batch_id}/stop")
+async def stop_batch(batch_id: str):
+    """Stop the current batch run."""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+    if status.get("status") not in ("created", "running"):
+        return {"batch_id": batch_id, "status": status.get("status")}
+
+    task_control.stop(batch_id)
+    stopped = sm.stop_batch("用户手动停止生成")
     engine = OrchestratorEngine(batch_id)
     engine.set_loop(asyncio.get_running_loop())
+    engine._broadcast("batch_stopped", {
+        "node_id": stopped.get("current_node"),
+        "name": stopped.get("current_node"),
+        "message": "用户手动停止生成",
+    })
+    return {"batch_id": batch_id, "status": "stopped"}
+
+
+@router.post("/batches/{batch_id}/resume")
+async def resume_batch(batch_id: str, req: BatchResumeRequest):
+    """Resume a stopped batch from the first unfinished node."""
+    sm = StateManager(batch_id)
+    status = sm.load()
+    if not status:
+        raise HTTPException(404, "批次不存在")
+    if task_control.is_active(batch_id):
+        raise HTTPException(409, "批次仍在停止中，请稍后继续")
+    if status.get("status") not in ("stopped", "failed", "created"):
+        raise HTTPException(400, f"当前状态不支持继续: {status.get('status')}")
+
+    sm.resume_batch(req.guidance)
+    stop_event = task_control.start(batch_id)
+    engine = OrchestratorEngine(batch_id, stop_event=stop_event)
+    engine.set_loop(asyncio.get_running_loop())
+    engine._broadcast("batch_resumed", {
+        "message": "继续执行生成任务",
+        "guidance": req.guidance,
+    })
     asyncio.create_task(asyncio.to_thread(engine.run_auto))
     return {"batch_id": batch_id, "status": "running"}
 

@@ -1,7 +1,7 @@
 /** Shared types for API and WebSocket events */
 
-export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed';
-export type BatchState = 'created' | 'running' | 'completed' | 'failed';
+export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+export type BatchState = 'created' | 'running' | 'completed' | 'failed' | 'stopped';
 
 export interface NodeInfo {
   node_id: string;
@@ -56,6 +56,9 @@ export type WsEventType =
   | 'node_start'
   | 'node_completed'
   | 'node_failed'
+  | 'node_stopped'
+  | 'batch_stopped'
+  | 'batch_resumed'
   | 'react_step'
   | 'log';
 

@@ -27,3 +27,9 @@ workspace/docs/已生成/*
 
 # Logs
 *.log
+backend/_result.txt
+backend/_result.txt
+scripts/run_temp.ps1
+workspace/docs/待生成/generated_spec.md
+workspace/docs/待生成/test.md
+workspace/docs/待生成/generated_spec.md
