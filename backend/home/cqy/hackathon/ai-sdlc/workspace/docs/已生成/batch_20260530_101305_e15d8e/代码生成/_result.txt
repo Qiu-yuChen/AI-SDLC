@@ -1,0 +1,7 @@
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="write_file">
+<｜｜DSML｜｜parameter name="content" string="true">id,plate_number,park_id,pay_time,amount,status
+</｜｜DSML｜｜parameter>
+<｜｜DSML｜｜parameter name="path" string="true">/home/cqy/hackathon/ai-sdlc/workspace/docs/已生成/batch_20260530_101305_e15d8e/代码生成/data/ketuo_payments.csv</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>
