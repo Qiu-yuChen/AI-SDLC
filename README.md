@@ -28,7 +28,7 @@
 ║     [Design] ──▶ [CodeGen] ──▶ [UnitTest] ──▶ [Scoring] ──▶ [Poster]                 ║
 ║      Qwen4B        GLM-5.1       DeepSeek     SWE+RepoZero      SDXL                 ║
 ║                        |                                                             ║
-║                        +--> Review Loop: score < 70 ? _quick_fix (1 LLM call, max 3)     ║
+║                        +--> Review Loop: score < 70 ? _quick_fix (1 LLM call, max 3) ║
 ║                                                                                      ║
 ╠══════════════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                      ║

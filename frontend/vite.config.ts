@@ -8,6 +8,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: FRONTEND_PORT,
+    host: '0.0.0.0',
+    allowedHosts: true,
     proxy: {
       '/api': `http://localhost:${BACKEND_PORT}`,
       '/ws': {
